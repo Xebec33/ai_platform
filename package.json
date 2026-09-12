@@ -12,7 +12,7 @@
     "build": "npm run build --workspaces",
     "typecheck": "npm run build --workspace=@ai-workflow/shared-types && npm run typecheck --workspace=@ai-workflow/backend && npm run typecheck --workspace=@ai-workflow/frontend",
     "lint": "eslint 前端 后端 共享类型 --max-warnings=0",
-    "test": "npm run build --workspace=@ai-workflow/shared-types && npm run test --workspace=@ai-workflow/backend && npm run test --workspace=@ai-workflow/frontend",
+    "test": "npm run build --workspace=@ai-workflow/shared-types && npm run test --workspace=@ai-workflow/shared-types && npm run test --workspace=@ai-workflow/backend && npm run test --workspace=@ai-workflow/frontend",
     "format:check": "prettier --check . --ignore-path .prettierignore"
   },
   "devDependencies": {
