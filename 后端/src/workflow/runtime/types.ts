@@ -32,6 +32,22 @@ export interface WorkflowNodeRun {
   finishedAt?: string;
   error?: string;
   errorCode?: string;
+  iteration?: number;
+}
+
+export interface WorkflowCheckpoint {
+  id: string;
+  runId: string;
+  workflowId: string;
+  currentNode: string;
+  variables: JsonObject;
+  nodeOutputs: Readonly<Record<string, JsonObject>>;
+  iterations: Readonly<Record<string, number>>;
+  createdAt: string;
+}
+
+export interface CheckpointStore {
+  save(checkpoint: WorkflowCheckpoint): void | Promise<void>;
 }
 
 export interface WorkflowRunResult {
@@ -44,6 +60,9 @@ export interface WorkflowRunResult {
   startedAt: string;
   finishedAt?: string;
   error?: string;
+  errorCode?: string;
+  iterations: Record<string, number>;
+  checkpoints: WorkflowCheckpoint[];
 }
 
 export interface WorkflowRuntimeOptions {
@@ -52,6 +71,8 @@ export interface WorkflowRuntimeOptions {
   maxAgentRetries?: number;
   runIdFactory?: () => string;
   nodeRunIdFactory?: (nodeId: string, index: number) => string;
+  workflowTimeoutMs?: number;
+  checkpointStore?: CheckpointStore;
 }
 
 export class WorkflowValidationError extends Error {
@@ -65,7 +86,10 @@ export class WorkflowValidationError extends Error {
 }
 
 export class WorkflowRuntimeError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code = 'RUNTIME_ERROR',
+  ) {
     super(message);
     this.name = 'WorkflowRuntimeError';
   }

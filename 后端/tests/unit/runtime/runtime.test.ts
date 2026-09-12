@@ -99,4 +99,124 @@ describe('WorkflowRuntime', () => {
         }),
     ).toThrow(WorkflowValidationError);
   });
+
+  it('executes a Loop until the second iteration passes and persists checkpoints', async () => {
+    const definition = loopWorkflow(3);
+    let calls = 0;
+    const save = vi.fn();
+    const result = await createWorkflowRuntime(definition, {
+      agentExecutor: async () => {
+        calls += 1;
+        return { output: { passed: calls >= 2 } };
+      },
+      checkpointStore: { save },
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.iterations['loop-1']).toBe(2);
+    expect(result.nodeRuns.filter((run) => run.nodeId === 'review-agent')).toHaveLength(2);
+    expect(
+      result.nodeRuns.find((run) => run.nodeId === 'review-agent' && run.iteration === 1),
+    ).toBeDefined();
+    expect(
+      result.nodeRuns.find((run) => run.nodeId === 'review-agent' && run.iteration === 2),
+    ).toBeDefined();
+    expect(result.checkpoints).toHaveLength(3);
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(result.output).toEqual({ passed: true });
+  });
+
+  it('fails a Loop after maxIterations without executing another iteration', async () => {
+    const definition = loopWorkflow(3);
+    let calls = 0;
+    const result = await createWorkflowRuntime(definition, {
+      agentExecutor: async () => {
+        calls += 1;
+        return { output: { passed: false } };
+      },
+    }).run();
+
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('MAX_ITERATIONS_REACHED');
+    expect(result.iterations['loop-1']).toBe(3);
+    expect(calls).toBe(3);
+    expect(result.nodeRuns.filter((run) => run.nodeId === 'review-agent')).toHaveLength(3);
+    expect(result.nodeRuns.some((run) => run.nodeId === 'end-1')).toBe(false);
+  });
+
+  it('uses Loop retry for a failed iteration without changing Agent retry count', async () => {
+    const definition = loopWorkflow(1);
+    const loop = definition.nodes.find((node) => node.id === 'loop-1');
+    if (!loop || loop.type !== 'loop') throw new Error('test loop missing');
+    loop.config.retry = 1;
+    let calls = 0;
+    const result = await createWorkflowRuntime(definition, {
+      agentExecutor: async () => {
+        calls += 1;
+        if (calls === 1) throw new Error('iteration failed');
+        return { output: { passed: true } };
+      },
+      maxAgentRetries: 0,
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(calls).toBe(2);
+    expect(result.nodeRuns.find((run) => run.nodeId === 'loop-1')?.attempts).toBe(2);
+    expect(result.nodeRuns.filter((run) => run.nodeId === 'review-agent')).toHaveLength(2);
+    expect(
+      result.nodeRuns
+        .filter((run) => run.nodeId === 'review-agent')
+        .every((run) => run.attempts === 1),
+    ).toBe(true);
+  });
+
+  it('rejects invalid workflow before execution', () => {
+    expect(
+      () =>
+        new WorkflowRuntime({
+          ...workflow(),
+          nodes: workflow().nodes.filter((node) => node.type !== 'start'),
+        }),
+    ).toThrow(WorkflowValidationError);
+  });
 });
+
+function loopWorkflow(maxIterations: number): WorkflowDefinition {
+  return {
+    id: 'loop-demo',
+    name: 'Loop Demo',
+    version: 1,
+    nodes: [
+      { id: 'start-1', type: 'start', name: 'Start', config: {} },
+      {
+        id: 'loop-1',
+        type: 'loop',
+        name: 'Review Loop',
+        config: {
+          maxIterations,
+          stopCondition: 'variables.review.passed == true',
+          bodyNodeId: 'review-agent',
+          exitNodeId: 'end-1',
+        },
+      },
+      {
+        id: 'review-agent',
+        type: 'agent',
+        name: 'Review',
+        config: {
+          model: 'mock',
+          systemPrompt: 'Review the current state.',
+          outputKey: 'review',
+        },
+      },
+      { id: 'end-1', type: 'end', name: 'End', config: {} },
+    ],
+    edges: [
+      { id: 'edge-start-loop', source: 'start-1', target: 'loop-1' },
+      { id: 'edge-loop-body', source: 'loop-1', target: 'review-agent', condition: 'body' },
+      { id: 'edge-loop-exit', source: 'loop-1', target: 'end-1', condition: 'exit' },
+      { id: 'edge-agent-loop', source: 'review-agent', target: 'loop-1' },
+    ],
+    variables: {},
+  };
+}

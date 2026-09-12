@@ -26,6 +26,8 @@ export interface LoopConfig extends JsonObject {
   stopCondition: string;
   retry?: number;
   timeout?: number;
+  bodyNodeId?: string;
+  exitNodeId?: string;
 }
 export type WorkflowNodeConfig = JsonObject;
 
