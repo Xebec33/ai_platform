@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { AgentExecutionError } from '../../../src/agents/index.js';
 import { createWorkflowDefinition, type WorkflowDefinition } from '@ai-workflow/shared-types';
 import {
   createWorkflowRuntime,
@@ -67,6 +68,25 @@ describe('WorkflowRuntime', () => {
       status: 'FAILED',
       attempts: 1,
       error: 'agent failed',
+    });
+  });
+
+  it('uses the default ModelProvider-backed Agent executor', async () => {
+    const result = await createWorkflowRuntime(workflow()).run({ variables: { prompt: 'hello' } });
+    expect(result.status).toBe('SUCCESS');
+    expect(result.output).toEqual({ response: 'Mock response: {"prompt":"hello"}' });
+  });
+
+  it('records classified Agent errors in NodeRun', async () => {
+    const result = await createWorkflowRuntime(workflow(), {
+      agentExecutor: async () => {
+        throw new AgentExecutionError('PARSING_ERROR', 'invalid output');
+      },
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.nodeRuns[1]).toMatchObject({
+      errorCode: 'PARSING_ERROR',
+      error: 'invalid output',
     });
   });
 

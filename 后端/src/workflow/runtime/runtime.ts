@@ -10,19 +10,15 @@ import {
   WorkflowRuntimeError,
   WorkflowValidationError,
   type AgentExecutionContext,
-  type AgentExecutor,
   type AgentExecutorLike,
   type WorkflowRunOptions,
   type WorkflowRunResult,
   type WorkflowRuntimeOptions,
   type WorkflowNodeRun,
 } from './types.js';
+import { AgentExecutionError, createDefaultAgentExecutor } from '../../agents/index.js';
 
-const defaultAgentExecutor: AgentExecutor = {
-  async execute(context) {
-    return { output: { response: context.input } };
-  },
-};
+const defaultAgentExecutor = createDefaultAgentExecutor();
 
 export class WorkflowRuntime {
   private readonly agentExecutor: AgentExecutorLike;
@@ -122,6 +118,7 @@ export class WorkflowRuntime {
       if (active?.status === 'RUNNING') {
         active.status = 'FAILED';
         active.error = message;
+        active.errorCode = error instanceof AgentExecutionError ? error.code : undefined;
         active.finishedAt = new Date().toISOString();
       }
       result.status = options.signal?.aborted ? 'CANCELLED' : 'FAILED';

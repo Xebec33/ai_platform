@@ -1,31 +1,20 @@
+import type { JsonObject, JsonValue, WorkflowDefinition } from '@ai-workflow/shared-types';
 import type {
-  AgentNode,
-  JsonObject,
-  JsonValue,
-  WorkflowDefinition,
-} from '@ai-workflow/shared-types';
+  AgentExecutionContext,
+  AgentExecutor,
+  AgentExecutorLike,
+  AgentOutput,
+} from '../../agents/agent.js';
 
 export type RunStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
 export type NodeRunStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED';
 
-export interface AgentExecutionContext {
-  node: AgentNode;
-  input: JsonValue;
-  variables: JsonObject;
-  nodeOutputs: Readonly<Record<string, JsonObject>>;
-  signal?: AbortSignal;
-}
-
-export interface AgentExecutionOutput {
-  output: JsonObject;
-}
-
-export interface AgentExecutor {
-  execute(context: AgentExecutionContext): Promise<AgentExecutionOutput>;
-}
-
-export type AgentExecutorLike =
-  AgentExecutor | ((context: AgentExecutionContext) => Promise<AgentExecutionOutput>);
+export type {
+  AgentExecutionContext,
+  AgentExecutor,
+  AgentExecutorLike,
+  AgentOutput as AgentExecutionOutput,
+};
 
 export interface WorkflowRunOptions {
   variables?: JsonObject;
@@ -42,6 +31,7 @@ export interface WorkflowNodeRun {
   startedAt: string;
   finishedAt?: string;
   error?: string;
+  errorCode?: string;
 }
 
 export interface WorkflowRunResult {

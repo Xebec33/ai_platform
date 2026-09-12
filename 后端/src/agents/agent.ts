@@ -1,0 +1,90 @@
+import type { AgentNode, JsonObject, JsonValue } from '@ai-workflow/shared-types';
+
+export interface AgentConfig {
+  id: string;
+  name: string;
+  description?: string;
+  model: string;
+  provider?: string;
+  systemPrompt: string;
+  inputMapping?: JsonObject;
+  outputSchema?: JsonObject;
+  temperature?: number;
+  maxTokens?: number;
+  timeout?: number;
+  outputKey?: string;
+}
+
+export interface AgentInput {
+  input: JsonValue;
+  variables: JsonObject;
+  nodeOutputs: Readonly<Record<string, JsonObject>>;
+  signal?: AbortSignal;
+}
+
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+export interface AgentOutput {
+  output: JsonObject;
+  rawText?: string;
+  usage?: TokenUsage;
+  latencyMs?: number;
+}
+
+export interface AgentExecutionContext extends AgentInput {
+  node: AgentNode;
+}
+
+export interface AgentExecutor {
+  execute(context: AgentExecutionContext): Promise<AgentOutput>;
+}
+
+export type AgentExecutorLike =
+  AgentExecutor | ((context: AgentExecutionContext) => Promise<AgentOutput>);
+
+export type AgentErrorCode =
+  'LLM_ERROR' | 'PARSING_ERROR' | 'TOOL_ERROR' | 'TIMEOUT' | 'BUSINESS_ERROR' | 'INVALID_OUTPUT';
+
+export class AgentExecutionError extends Error {
+  constructor(
+    readonly code: AgentErrorCode,
+    message: string,
+    readonly retryable = false,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = 'AgentExecutionError';
+  }
+}
+
+export function agentConfigFromNode(node: AgentNode): AgentConfig {
+  return {
+    id: node.id,
+    name: node.name,
+    model: node.config.model,
+    provider: asString(node.config.provider),
+    systemPrompt: node.config.systemPrompt,
+    inputMapping: node.input,
+    outputSchema: asObject(node.config.outputSchema),
+    temperature: asNumber(node.config.temperature),
+    maxTokens: asNumber(node.config.maxTokens),
+    timeout: asNumber(node.config.timeout),
+    outputKey: node.outputKey ?? node.config.outputKey,
+  };
+}
+
+function asString(value: JsonValue | undefined): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function asNumber(value: JsonValue | undefined): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+function asObject(value: JsonValue | undefined): JsonObject | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : undefined;
+}
