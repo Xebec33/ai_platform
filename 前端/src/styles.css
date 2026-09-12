@@ -1,0 +1,107 @@
+:root {
+  color: #e8eefc;
+  background: #0b1020;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+button {
+  font: inherit;
+}
+.page-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(93, 95, 255, 0.24), transparent 32%),
+    radial-gradient(circle at 85% 80%, rgba(19, 194, 194, 0.16), transparent 30%), #0b1020;
+}
+.hero-card {
+  width: min(100%, 720px);
+  padding: clamp(32px, 8vw, 72px);
+  border: 1px solid rgba(181, 194, 255, 0.2);
+  border-radius: 28px;
+  background: rgba(18, 26, 50, 0.82);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.32);
+}
+.eyebrow {
+  margin: 0 0 18px;
+  color: #9ba8ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(36px, 8vw, 64px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+.subtitle {
+  margin: 20px 0 0;
+  color: #aab7d8;
+  font-size: 18px;
+}
+.status-card {
+  margin-top: 48px;
+  padding: 24px;
+  border: 1px solid rgba(181, 194, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(7, 12, 28, 0.46);
+}
+.status-card.success {
+  border-color: rgba(76, 217, 164, 0.4);
+}
+.status-card.failure {
+  border-color: rgba(255, 123, 140, 0.5);
+}
+.status-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #dce4ff;
+  font-weight: 700;
+}
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f5c451;
+}
+.success .status-dot {
+  background: #4cd9a4;
+}
+.failure .status-dot {
+  background: #ff7b8c;
+}
+.status-message {
+  margin: 18px 0 0;
+  color: #c0cbea;
+  line-height: 1.6;
+}
+.timestamp {
+  margin: 8px 0 0;
+  color: #7e8caf;
+  font-size: 13px;
+}
+.refresh-button {
+  margin-top: 20px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 10px;
+  color: #10152b;
+  background: #aab7ff;
+  cursor: pointer;
+  font-weight: 700;
+}
+.refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
