@@ -1,7 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
 :root {
   color: #e8eefc;
-  background: #0b1020;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  background: #0a1020;
+  font-family: Manrope, ui-sans-serif, system-ui, sans-serif;
 }
 * {
   box-sizing: border-box;
@@ -11,97 +12,289 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
-button {
+button,
+input,
+textarea {
   font: inherit;
 }
-.page-shell {
-  display: grid;
-  min-height: 100vh;
-  place-items: center;
-  padding: 32px;
-  background:
-    radial-gradient(circle at 15% 20%, rgba(93, 95, 255, 0.24), transparent 32%),
-    radial-gradient(circle at 85% 80%, rgba(19, 194, 194, 0.16), transparent 30%), #0b1020;
+button {
+  cursor: pointer;
 }
-.hero-card {
-  width: min(100%, 720px);
-  padding: clamp(32px, 8vw, 72px);
-  border: 1px solid rgba(181, 194, 255, 0.2);
-  border-radius: 28px;
-  background: rgba(18, 26, 50, 0.82);
-  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.32);
+.editor-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background: radial-gradient(circle at 15% 10%, rgba(92, 101, 255, 0.2), transparent 28%), #0a1020;
+}
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 24px;
+  max-width: 1800px;
+  margin: 0 auto 18px;
 }
 .eyebrow {
-  margin: 0 0 18px;
+  margin: 0 0 8px;
   color: #9ba8ff;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   letter-spacing: 0.16em;
 }
 h1 {
   margin: 0;
-  font-size: clamp(36px, 8vw, 64px);
-  line-height: 1.05;
+  font-size: clamp(24px, 4vw, 42px);
   letter-spacing: -0.04em;
 }
-.subtitle {
-  margin: 20px 0 0;
-  color: #aab7d8;
-  font-size: 18px;
+.editor-subtitle {
+  margin: 8px 0 0;
+  color: #8e9bbb;
 }
-.status-card {
-  margin-top: 48px;
-  padding: 24px;
-  border: 1px solid rgba(181, 194, 255, 0.18);
-  border-radius: 18px;
-  background: rgba(7, 12, 28, 0.46);
-}
-.status-card.success {
-  border-color: rgba(76, 217, 164, 0.4);
-}
-.status-card.failure {
-  border-color: rgba(255, 123, 140, 0.5);
-}
-.status-heading {
+.editor-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: end;
+}
+.workflow-name-input,
+.config-form input,
+.config-form textarea,
+.json-card textarea {
+  width: 100%;
+  border: 1px solid #303d60;
+  border-radius: 8px;
+  color: #e8eefc;
+  background: #111a31;
+  padding: 9px 10px;
+  outline: none;
+}
+.workflow-name-input {
+  width: 190px;
+}
+.button {
+  border: 1px solid #35436a;
+  border-radius: 8px;
+  padding: 9px 14px;
+  color: #dbe2ff;
+  background: #18233f;
+}
+.button--primary {
+  border-color: #8490ff;
+  color: #11152a;
+  background: #aab4ff;
+  font-weight: 800;
+}
+.editor-content {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) 290px;
+  gap: 14px;
+  height: calc(100vh - 148px);
+  max-width: 1800px;
+  min-height: 560px;
+  margin: 0 auto;
+}
+.node-palette,
+.config-panel,
+.flow-panel {
+  min-height: 0;
+  border: 1px solid #263453;
+  border-radius: 14px;
+  background: rgba(15, 24, 46, 0.84);
+}
+.node-palette,
+.config-panel {
+  padding: 16px;
+}
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  font-weight: 800;
+}
+.panel-heading small,
+.palette-item small {
+  display: block;
+  color: #8090b7;
+  font-size: 11px;
+  font-weight: 400;
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
   gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  margin: 6px 0;
+  padding: 10px;
+  text-align: left;
   color: #dce4ff;
+  background: #151f39;
+}
+.palette-item:hover {
+  border-color: #6675da;
+}
+.palette-icon,
+.workflow-node__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #10162c;
+  background: #9ca9ff;
+  font-weight: 800;
+}
+.palette-tip {
+  margin-top: 22px;
+  color: #7382a7;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.flow-panel {
+  position: relative;
+  overflow: hidden;
+}
+.vue-flow {
+  width: 100%;
+  height: 100%;
+}
+.editor-toast {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  max-width: 80%;
+  padding: 9px 12px;
+  border: 1px solid #315a62;
+  border-radius: 8px;
+  color: #94f0d3;
+  background: rgba(10, 34, 43, 0.92);
+  font-size: 12px;
+}
+.editor-toast--error {
+  border-color: #783d59;
+  color: #ffafc0;
+  background: rgba(49, 18, 38, 0.94);
+}
+.workflow-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 174px;
+  gap: 10px;
+  border: 1px solid #3b4b79;
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #e9eeff;
+  background: #182541;
+  box-shadow: 0 10px 24px rgba(3, 8, 24, 0.35);
+}
+.workflow-node--start {
+  border-color: #4fbf9c;
+}
+.workflow-node--agent {
+  border-color: #7988ef;
+}
+.workflow-node--condition {
+  border-color: #e2b366;
+}
+.workflow-node--end {
+  border-color: #e77d9b;
+}
+.workflow-node__body {
+  display: grid;
+  gap: 3px;
+}
+.workflow-node__body span {
+  color: #8493b7;
+  font-size: 11px;
+}
+.workflow-handle {
+  width: 8px;
+  height: 8px;
+  border: 2px solid #d9e0ff;
+  background: #7789ff;
+}
+.config-form {
+  display: grid;
+  gap: 14px;
+}
+.config-form label {
+  display: grid;
+  gap: 6px;
+  color: #aeb9d6;
+  font-size: 12px;
   font-weight: 700;
 }
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #f5c451;
+.config-form textarea,
+.json-card textarea {
+  resize: vertical;
+  line-height: 1.5;
 }
-.success .status-dot {
-  background: #4cd9a4;
-}
-.failure .status-dot {
-  background: #ff7b8c;
-}
-.status-message {
-  margin: 18px 0 0;
-  color: #c0cbea;
-  line-height: 1.6;
-}
-.timestamp {
-  margin: 8px 0 0;
-  color: #7e8caf;
+.empty-state {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  color: #7483a7;
   font-size: 13px;
+  text-align: center;
 }
-.refresh-button {
-  margin-top: 20px;
-  padding: 10px 16px;
+.json-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(3, 7, 20, 0.74);
+}
+.json-card {
+  width: min(720px, 100%);
+  border: 1px solid #3b4c77;
+  border-radius: 14px;
+  padding: 18px;
+  background: #111a31;
+}
+.json-card textarea {
+  font-family: monospace;
+}
+.json-actions {
+  display: flex;
+  justify-content: end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.icon-button {
   border: 0;
-  border-radius: 10px;
-  color: #10152b;
-  background: #aab7ff;
-  cursor: pointer;
-  font-weight: 700;
+  color: #aab5d8;
+  background: none;
 }
-.refresh-button:disabled {
-  cursor: wait;
-  opacity: 0.6;
+@media (max-width: 980px) {
+  .editor-header {
+    align-items: start;
+    flex-direction: column;
+  }
+  .editor-content {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .config-panel {
+    grid-column: 1 / -1;
+    min-height: 260px;
+  }
+}
+@media (max-width: 640px) {
+  .editor-shell {
+    padding: 12px;
+  }
+  .editor-content {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .flow-panel {
+    height: 600px;
+  }
+  .workflow-name-input {
+    width: 100%;
+  }
 }

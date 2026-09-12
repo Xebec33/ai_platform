@@ -1,0 +1,319 @@
+import { Position } from '@vue-flow/core';
+export const WORKFLOW_GRAPH_VERSION = 1 as const;
+export const WORKFLOW_NODE_TYPES = ['start', 'agent', 'condition', 'end'] as const;
+export type WorkflowNodeType = (typeof WORKFLOW_NODE_TYPES)[number];
+export interface AgentNodeConfig {
+  model: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+}
+export interface ConditionNodeConfig {
+  expression: string;
+  trueLabel: string;
+  falseLabel: string;
+}
+export type WorkflowNodeConfig = Record<string, unknown>;
+export interface WorkflowNodeData {
+  label: string;
+  config: WorkflowNodeConfig;
+}
+export interface WorkflowGraphNode {
+  id: string;
+  type: WorkflowNodeType;
+  position: { x: number; y: number };
+  data: WorkflowNodeData;
+}
+export interface WorkflowGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  label?: string;
+}
+export interface WorkflowGraph {
+  id: string;
+  name: string;
+  version: typeof WORKFLOW_GRAPH_VERSION;
+  nodes: WorkflowGraphNode[];
+  edges: WorkflowGraphEdge[];
+}
+export type WorkflowGraphValidationCode =
+  | 'INVALID_ROOT'
+  | 'INVALID_VERSION'
+  | 'MISSING_START'
+  | 'MULTIPLE_START_NODES'
+  | 'MISSING_END'
+  | 'DUPLICATE_NODE_ID'
+  | 'DUPLICATE_EDGE_ID'
+  | 'UNKNOWN_NODE_TYPE'
+  | 'UNKNOWN_EDGE_SOURCE'
+  | 'UNKNOWN_EDGE_TARGET';
+export interface WorkflowGraphValidationIssue {
+  code: WorkflowGraphValidationCode;
+  message: string;
+  path: string;
+}
+export interface WorkflowGraphValidationResult {
+  valid: boolean;
+  issues: WorkflowGraphValidationIssue[];
+}
+const agentConfig: AgentNodeConfig = {
+  model: 'gpt-4o-mini',
+  systemPrompt: 'You are a helpful workflow agent.',
+  temperature: 0.7,
+  maxTokens: 2048,
+};
+const conditionConfig: ConditionNodeConfig = {
+  expression: 'input.approved === true',
+  trueLabel: 'Yes',
+  falseLabel: 'No',
+};
+export function createWorkflowGraphNode(
+  type: WorkflowNodeType,
+  id: string,
+  position: { x: number; y: number },
+): WorkflowGraphNode {
+  const config =
+    type === 'agent' ? { ...agentConfig } : type === 'condition' ? { ...conditionConfig } : {};
+  return {
+    id,
+    type,
+    position: { ...position },
+    data: { label: type.charAt(0).toUpperCase() + type.slice(1), config },
+  };
+}
+export function createDefaultWorkflowGraph(): WorkflowGraph {
+  return {
+    id: 'workflow-1',
+    name: 'Untitled workflow',
+    version: 1,
+    nodes: [
+      createWorkflowGraphNode('start', 'start-1', { x: 80, y: 180 }),
+      createWorkflowGraphNode('agent', 'agent-1', { x: 330, y: 180 }),
+      createWorkflowGraphNode('end', 'end-1', { x: 620, y: 180 }),
+    ],
+    edges: [
+      { id: 'edge-start-agent', source: 'start-1', target: 'agent-1' },
+      { id: 'edge-agent-end', source: 'agent-1', target: 'end-1' },
+    ],
+  };
+}
+export function graphToVueFlow(graph: WorkflowGraph) {
+  return {
+    nodes: graph.nodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      position: { ...n.position },
+      data: { label: n.data.label, config: { ...n.data.config } },
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+      draggable: true,
+      deletable: true,
+    })),
+    edges: graph.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+      label: e.label,
+      data: e.label ? { label: e.label } : undefined,
+      type: 'smoothstep',
+      animated: false,
+    })),
+  };
+}
+export function vueFlowToGraph(
+  nodes: readonly {
+    id: string;
+    type?: string;
+    position: { x: number; y: number };
+    data: WorkflowNodeData;
+  }[],
+  edges: readonly {
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
+    label?: string;
+  }[],
+  metadata: Pick<WorkflowGraph, 'id' | 'name'> = { id: 'workflow-1', name: 'Untitled workflow' },
+): WorkflowGraph {
+  return {
+    id: metadata.id,
+    name: metadata.name,
+    version: 1,
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      type: isNodeType(n.type) ? n.type : 'agent',
+      position: { ...n.position },
+      data: { label: n.data.label, config: { ...n.data.config } },
+    })),
+    edges: edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle,
+      targetHandle: e.targetHandle,
+      label: e.label,
+    })),
+  };
+}
+export function serializeWorkflowGraph(graph: WorkflowGraph): string {
+  return JSON.stringify(graph, null, 2);
+}
+export function deserializeWorkflowGraph(value: string): WorkflowGraph {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new Error('Workflow JSON 格式无效');
+  }
+  const graph = parseGraph(parsed);
+  const result = validateWorkflowGraph(graph);
+  if (!result.valid)
+    throw new Error('Workflow Graph 无效：' + result.issues.map((i) => i.message).join('；'));
+  return graph;
+}
+
+export function validateWorkflowGraph(value: unknown): WorkflowGraphValidationResult {
+  const issues: WorkflowGraphValidationIssue[] = [];
+  if (!isRecord(value))
+    return {
+      valid: false,
+      issues: [{ code: 'INVALID_ROOT', message: 'Workflow Graph 必须是对象', path: '$' }],
+    };
+  if (value.version !== 1)
+    issues.push({
+      code: 'INVALID_VERSION',
+      message: 'Workflow Graph version 必须为 1',
+      path: '$.version',
+    });
+  const nodes = Array.isArray(value.nodes) ? value.nodes : [];
+  const edges = Array.isArray(value.edges) ? value.edges : [];
+  const ids = new Set<string>();
+  let starts = 0;
+  let ends = 0;
+  nodes.forEach((node, i) => {
+    if (!isRecord(node)) {
+      issues.push({ code: 'INVALID_ROOT', message: '节点必须是对象', path: '$.nodes[' + i + ']' });
+      return;
+    }
+    const id = typeof node.id === 'string' ? node.id : '';
+    if (id && ids.has(id))
+      issues.push({
+        code: 'DUPLICATE_NODE_ID',
+        message: '节点 ID 重复：' + id,
+        path: '$.nodes[' + i + '].id',
+      });
+    if (id) ids.add(id);
+    if (!isNodeType(node.type))
+      issues.push({
+        code: 'UNKNOWN_NODE_TYPE',
+        message: '不支持的节点类型：' + String(node.type),
+        path: '$.nodes[' + i + '].type',
+      });
+    else if (node.type === 'start') starts++;
+    else if (node.type === 'end') ends++;
+  });
+  if (!starts)
+    issues.push({
+      code: 'MISSING_START',
+      message: 'Workflow Graph 至少需要一个 Start 节点',
+      path: '$.nodes',
+    });
+  if (starts > 1)
+    issues.push({
+      code: 'MULTIPLE_START_NODES',
+      message: 'Workflow Graph 只能有一个 Start 节点',
+      path: '$.nodes',
+    });
+  if (!ends)
+    issues.push({
+      code: 'MISSING_END',
+      message: 'Workflow Graph 至少需要一个 End 节点',
+      path: '$.nodes',
+    });
+  const edgeIds = new Set<string>();
+  edges.forEach((edge, i) => {
+    if (!isRecord(edge)) {
+      issues.push({ code: 'INVALID_ROOT', message: '边必须是对象', path: '$.edges[' + i + ']' });
+      return;
+    }
+    const id = typeof edge.id === 'string' ? edge.id : '';
+    if (id && edgeIds.has(id))
+      issues.push({
+        code: 'DUPLICATE_EDGE_ID',
+        message: '边 ID 重复：' + id,
+        path: '$.edges[' + i + '].id',
+      });
+    if (id) edgeIds.add(id);
+    const source = typeof edge.source === 'string' ? edge.source : '';
+    const target = typeof edge.target === 'string' ? edge.target : '';
+    if (!ids.has(source))
+      issues.push({
+        code: 'UNKNOWN_EDGE_SOURCE',
+        message: '边的 source 节点不存在：' + source,
+        path: '$.edges[' + i + '].source',
+      });
+    if (!ids.has(target))
+      issues.push({
+        code: 'UNKNOWN_EDGE_TARGET',
+        message: '边的 target 节点不存在：' + target,
+        path: '$.edges[' + i + '].target',
+      });
+  });
+  return { valid: issues.length === 0, issues };
+}
+function parseGraph(value: unknown): WorkflowGraph {
+  if (!isRecord(value)) throw new Error('Workflow JSON 根节点必须是对象');
+  return {
+    id: typeof value.id === 'string' ? value.id : '',
+    name: typeof value.name === 'string' ? value.name : '',
+    version: value.version === 1 ? 1 : (0 as never),
+    nodes: Array.isArray(value.nodes) ? value.nodes.map(parseNode) : [],
+    edges: Array.isArray(value.edges) ? value.edges.map(parseEdge) : [],
+  };
+}
+function parseNode(value: unknown, i: number): WorkflowGraphNode {
+  if (!isRecord(value) || !isNodeType(value.type))
+    throw new Error('Workflow JSON 节点 ' + i + ' 无效');
+  const pos = isRecord(value.position) ? value.position : {};
+  const data = isRecord(value.data) ? value.data : {};
+  const config = isRecord(data.config) ? data.config : {};
+  return {
+    id: typeof value.id === 'string' ? value.id : '',
+    type: value.type,
+    position: {
+      x: typeof pos.x === 'number' ? pos.x : 0,
+      y: typeof pos.y === 'number' ? pos.y : 0,
+    },
+    data: {
+      label:
+        typeof data.label === 'string'
+          ? data.label
+          : value.type.charAt(0).toUpperCase() + value.type.slice(1),
+      config: { ...config },
+    },
+  };
+}
+function parseEdge(value: unknown, i: number): WorkflowGraphEdge {
+  if (!isRecord(value)) throw new Error('Workflow JSON 边 ' + i + ' 无效');
+  return {
+    id: typeof value.id === 'string' ? value.id : '',
+    source: typeof value.source === 'string' ? value.source : '',
+    target: typeof value.target === 'string' ? value.target : '',
+    ...(typeof value.sourceHandle === 'string' ? { sourceHandle: value.sourceHandle } : {}),
+    ...(typeof value.targetHandle === 'string' ? { targetHandle: value.targetHandle } : {}),
+    ...(typeof value.label === 'string' ? { label: value.label } : {}),
+  };
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function isNodeType(value: unknown): value is WorkflowNodeType {
+  return typeof value === 'string' && (WORKFLOW_NODE_TYPES as readonly string[]).includes(value);
+}
