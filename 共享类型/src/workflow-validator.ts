@@ -111,6 +111,29 @@ export function validateWorkflow(value: unknown): ValidationResult {
       incoming.set(target, [...(incoming.get(target) ?? []), source]);
     }
   });
+  workflow.nodes.forEach((node, index) => {
+    if (!isRecord(node) || node.type !== 'loop') return;
+    const path = '$.nodes[' + index + '].config';
+    if (!isRecord(node.config)) {
+      add(issues, 'INVALID_LOOP_CONFIG', 'Loop config 必须是对象', path);
+      return;
+    }
+    const config = node.config;
+    const edges = workflow.edges!.filter(
+      (edge) => isRecord(edge) && text(edge.source) === text(node.id),
+    );
+    const bodyId = nonEmpty(config.bodyNodeId) ? config.bodyNodeId : undefined;
+    const exitId = nonEmpty(config.exitNodeId) ? config.exitNodeId : undefined;
+    const bodyEdge = bodyId
+      ? edges.find((edge) => text(edge.target) === bodyId)
+      : (edges.find((edge) => isLoopBodyLabel(text(edge.condition))) ?? edges[0]);
+    const exitEdge = exitId
+      ? edges.find((edge) => text(edge.target) === exitId)
+      : (edges.find((edge) => isLoopExitLabel(text(edge.condition))) ??
+        (edges.length > 1 ? edges.at(-1) : undefined));
+    if (!bodyEdge || !exitEdge || bodyEdge === exitEdge)
+      add(issues, 'INVALID_LOOP_CONFIG', 'Loop 必须配置两条不同的 body 和 exit 出边', path);
+  });
   if (starts === 1) {
     const start = workflow.nodes.find((node) => isRecord(node) && node.type === 'start');
     const reachable = walk(text(start && start.id), outgoing);
@@ -142,6 +165,7 @@ export function validateWorkflow(value: unknown): ValidationResult {
 function validateConfig(node: WorkflowNode, path: string, issues: ValidationIssue[]): void {
   if (!isRecord(node.config)) {
     add(issues, 'INVALID_NODE_CONFIG', 'config 必须是对象', path);
+    if (node.type === 'loop') add(issues, 'INVALID_LOOP_CONFIG', 'Loop config 必须是对象', path);
     return;
   }
   if (node.type === 'agent') {
@@ -178,6 +202,10 @@ function validateConfig(node: WorkflowNode, path: string, issues: ValidationIssu
       add(issues, 'INVALID_LOOP_CONFIG', 'retry 必须是非负整数', path);
     if (config.timeout !== undefined && (typeof config.timeout !== 'number' || config.timeout <= 0))
       add(issues, 'INVALID_LOOP_CONFIG', 'timeout 必须是正数', path);
+    if (config.bodyNodeId !== undefined && !nonEmpty(config.bodyNodeId))
+      add(issues, 'INVALID_LOOP_CONFIG', 'bodyNodeId 必须是非空字符串', path);
+    if (config.exitNodeId !== undefined && !nonEmpty(config.exitNodeId))
+      add(issues, 'INVALID_LOOP_CONFIG', 'exitNodeId 必须是非空字符串', path);
   }
 }
 
@@ -220,4 +248,11 @@ function add(issues: ValidationIssue[], code: ValidationCode, message: string, p
 }
 function result(issues: ValidationIssue[]): ValidationResult {
   return { valid: issues.length === 0, issues };
+}
+
+function isLoopBodyLabel(value: string): boolean {
+  return ['continue', 'body', 'retry', 'false'].includes(value.trim().toLowerCase());
+}
+function isLoopExitLabel(value: string): boolean {
+  return ['stop', 'exit', 'done', 'success', 'true'].includes(value.trim().toLowerCase());
 }

@@ -179,7 +179,200 @@ describe('WorkflowRuntime', () => {
         }),
     ).toThrow(WorkflowValidationError);
   });
+
+  it('finalizes a failed Loop body node instead of leaving it RUNNING', async () => {
+    const result = await createWorkflowRuntime(loopWorkflow(2), {
+      agentExecutor: async () => {
+        throw new Error('body failed');
+      },
+    }).run();
+    const bodyRuns = result.nodeRuns.filter((run) => run.nodeId === 'review-agent');
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('MAX_ITERATIONS_REACHED');
+    expect(bodyRuns).toHaveLength(2);
+    expect(bodyRuns.every((run) => run.status === 'FAILED' && run.finishedAt && run.error)).toBe(
+      true,
+    );
+  });
+
+  it('fails immediately when a Loop has no exit edge', async () => {
+    const definition = loopWorkflow(2);
+    const runtime = createWorkflowRuntime(definition);
+    definition.edges = definition.edges.filter((edge) => edge.id !== 'edge-loop-exit');
+    const result = await runtime.run();
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('LOOP_CONFIG_ERROR');
+    expect(result.nodeRuns.some((run) => run.nodeId === 'review-agent')).toBe(false);
+  });
+
+  it('uses Loop timeout for a slow body Agent', async () => {
+    const definition = loopWorkflow(1);
+    const loop = definition.nodes.find((node) => node.id === 'loop-1');
+    if (!loop || loop.type !== 'loop') throw new Error('test loop missing');
+    loop.config.timeout = 5;
+    const result = await createWorkflowRuntime(definition, {
+      agentExecutor: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { output: { passed: true } };
+      },
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('LOOP_TIMEOUT');
+  });
+
+  it('cancels an Agent wait immediately when its AbortSignal is aborted', async () => {
+    const controller = new AbortController();
+    const running = createWorkflowRuntime(workflow(), {
+      agentExecutor: async () => new Promise(() => {}),
+    }).run({ signal: controller.signal });
+    setTimeout(() => controller.abort(), 5);
+    const result = await running;
+    expect(result.status).toBe('CANCELLED');
+    expect(result.errorCode).toBe('CANCELLED');
+    expect(result.nodeRuns[1]).toMatchObject({ status: 'FAILED', errorCode: 'CANCELLED' });
+    expect(result.nodeRuns.some((run) => run.nodeId === 'end-1')).toBe(false);
+  });
+
+  it('returns Node timeout and finalizes the timed out Agent', async () => {
+    const result = await createWorkflowRuntime(workflow(), {
+      agentTimeoutMs: 5,
+      agentExecutor: async () => new Promise(() => {}),
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('NODE_TIMEOUT');
+    expect(result.nodeRuns[1]).toMatchObject({ status: 'FAILED', errorCode: 'NODE_TIMEOUT' });
+    expect(result.nodeRuns[1]?.finishedAt).toBeDefined();
+  });
+
+  it('fails the run when CheckpointStore cannot save', async () => {
+    const result = await createWorkflowRuntime(loopWorkflow(1), {
+      checkpointStore: {
+        save: async () => {
+          throw new Error('checkpoint offline');
+        },
+      },
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('CHECKPOINT_ERROR');
+    expect(result.nodeRuns.find((run) => run.nodeId === 'loop-1')).toMatchObject({
+      status: 'FAILED',
+      errorCode: 'CHECKPOINT_ERROR',
+    });
+  });
+
+  it('returns Workflow timeout while an Agent Promise is pending', async () => {
+    const result = await createWorkflowRuntime(workflow(), {
+      workflowTimeoutMs: 5,
+      agentExecutor: async () => new Promise(() => {}),
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.errorCode).toBe('WORKFLOW_TIMEOUT');
+  });
+
+  it.each([true, false])('routes Condition %s branch correctly', async (flag) => {
+    const result = await createWorkflowRuntime(conditionWorkflow(flag), {
+      agentExecutor: async ({ node }) => ({
+        output: { branch: node.id === 'true-agent' ? 'true' : 'false' },
+      }),
+    }).run();
+    expect(result.status).toBe('SUCCESS');
+    expect(result.output).toEqual({ branch: flag ? 'true' : 'false' });
+  });
+
+  it('restores Loop variables before retrying a failed iteration', async () => {
+    const seen: unknown[] = [];
+    let secondCalls = 0;
+    const result = await createWorkflowRuntime(retryWorkflow(), {
+      agentExecutor: async ({ node, variables }) => {
+        if (node.id === 'first-agent') {
+          seen.push(variables.transient);
+          if (seen.length === 1) variables.transient = 'dirty';
+          return { output: { value: 1 } };
+        }
+        secondCalls += 1;
+        if (secondCalls === 1) throw new Error('second failed');
+        return { output: { ok: true } };
+      },
+    }).run();
+    expect(result.status).toBe('SUCCESS');
+    expect(result.error).toBeUndefined();
+    expect(seen).toEqual([undefined, undefined]);
+    expect(result.variables.transient).toBeUndefined();
+    expect(result.variables.second).toEqual({ ok: true });
+  });
 });
+
+function conditionWorkflow(flag: boolean): WorkflowDefinition {
+  return {
+    id: 'condition-demo',
+    name: 'Condition Demo',
+    version: 1,
+    variables: { flag },
+    nodes: [
+      { id: 'start-1', type: 'start', name: 'Start', config: {} },
+      {
+        id: 'condition-1',
+        type: 'condition',
+        name: 'Condition',
+        config: { expression: 'variables.flag == true' },
+      },
+      {
+        id: 'true-agent',
+        type: 'agent',
+        name: 'True',
+        config: { model: 'mock', systemPrompt: 'true', outputKey: 'result' },
+      },
+      {
+        id: 'false-agent',
+        type: 'agent',
+        name: 'False',
+        config: { model: 'mock', systemPrompt: 'false', outputKey: 'result' },
+      },
+      { id: 'end-1', type: 'end', name: 'End', config: {} },
+    ],
+    edges: [
+      { id: 'e1', source: 'start-1', target: 'condition-1' },
+      { id: 'e2', source: 'condition-1', target: 'true-agent', condition: 'true' },
+      { id: 'e3', source: 'condition-1', target: 'false-agent', condition: 'false' },
+      { id: 'e4', source: 'true-agent', target: 'end-1' },
+      { id: 'e5', source: 'false-agent', target: 'end-1' },
+    ],
+  };
+}
+
+function retryWorkflow(): WorkflowDefinition {
+  const definition = loopWorkflow(1);
+  definition.nodes.splice(
+    2,
+    1,
+    {
+      id: 'first-agent',
+      type: 'agent',
+      name: 'First',
+      config: { model: 'mock', systemPrompt: 'first', outputKey: 'first' },
+    },
+    {
+      id: 'second-agent',
+      type: 'agent',
+      name: 'Second',
+      config: { model: 'mock', systemPrompt: 'second', outputKey: 'second' },
+    },
+  );
+  const loop = definition.nodes.find((node) => node.id === 'loop-1');
+  if (loop && loop.type === 'loop') {
+    loop.config.bodyNodeId = 'first-agent';
+    loop.config.retry = 1;
+    loop.config.stopCondition = 'variables.second.ok == true';
+  }
+  definition.edges = [
+    { id: 'e1', source: 'start-1', target: 'loop-1' },
+    { id: 'e2', source: 'loop-1', target: 'first-agent', condition: 'body' },
+    { id: 'e3', source: 'loop-1', target: 'end-1', condition: 'exit' },
+    { id: 'e4', source: 'first-agent', target: 'second-agent' },
+    { id: 'e5', source: 'second-agent', target: 'loop-1' },
+  ];
+  return definition;
+}
 
 function loopWorkflow(maxIterations: number): WorkflowDefinition {
   return {

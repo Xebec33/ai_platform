@@ -71,4 +71,48 @@ describe('workflow DSL', () => {
   it('serializes a versioned JSON document', () => {
     expect(JSON.parse(serializeWorkflow(createWorkflowDefinition())).version).toBe(1);
   });
+  it('reports invalid Loop config instead of throwing when config is null', () => {
+    const workflow = loopValidationWorkflow();
+    const loop = workflow.nodes.find((node) => node.type === 'loop');
+    if (!loop || loop.type !== 'loop') throw new Error('test loop missing');
+    (loop as unknown as { config: unknown }).config = null;
+
+    expect(() => validateWorkflow(workflow)).not.toThrow();
+    expect(validateWorkflow(workflow).issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['INVALID_NODE_CONFIG', 'INVALID_LOOP_CONFIG']),
+    );
+  });
+  it('rejects bodyNodeId and exitNodeId resolving to the same edge', () => {
+    const workflow = loopValidationWorkflow();
+    const loop = workflow.nodes.find((node) => node.type === 'loop');
+    if (!loop || loop.type !== 'loop') throw new Error('test loop missing');
+    loop.config.bodyNodeId = 'end-1';
+    loop.config.exitNodeId = 'end-1';
+
+    const result = validateWorkflow(workflow);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'INVALID_LOOP_CONFIG' })]),
+    );
+  });
 });
+
+function loopValidationWorkflow(): ReturnType<typeof createWorkflowDefinition> {
+  const workflow = createWorkflowDefinition('loop-validation', 'Loop Validation');
+  workflow.nodes = [
+    { id: 'start-1', type: 'start', name: 'Start', config: {} },
+    {
+      id: 'loop-1',
+      type: 'loop',
+      name: 'Loop',
+      config: { maxIterations: 1, stopCondition: 'true' },
+    },
+    { id: 'end-1', type: 'end', name: 'End', config: {} },
+  ];
+  workflow.edges = [
+    { id: 'edge-start-loop', source: 'start-1', target: 'loop-1' },
+    { id: 'edge-loop-end', source: 'loop-1', target: 'end-1' },
+  ];
+  return workflow;
+}

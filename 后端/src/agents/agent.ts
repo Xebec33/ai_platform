@@ -47,7 +47,13 @@ export type AgentExecutorLike =
   AgentExecutor | ((context: AgentExecutionContext) => Promise<AgentOutput>);
 
 export type AgentErrorCode =
-  'LLM_ERROR' | 'PARSING_ERROR' | 'TOOL_ERROR' | 'TIMEOUT' | 'BUSINESS_ERROR' | 'INVALID_OUTPUT';
+  | 'LLM_ERROR'
+  | 'PARSING_ERROR'
+  | 'TOOL_ERROR'
+  | 'TIMEOUT'
+  | 'CANCELLED'
+  | 'BUSINESS_ERROR'
+  | 'INVALID_OUTPUT';
 
 export class AgentExecutionError extends Error {
   constructor(

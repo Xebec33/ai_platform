@@ -61,13 +61,20 @@ describe('ProviderAgentExecutor', () => {
     });
   });
 
-  it('classifies provider timeout', async () => {
+  it('classifies provider timeout and aborts the underlying request', async () => {
     const node = agentNode();
     node.config.timeout = 5;
+    let aborted = false;
     const executor = new ProviderAgentExecutor({
       providers: new ModelProviderRegistry([
         new MockModelProvider(
-          () => new Promise((resolve) => setTimeout(() => resolve({ content: 'late' }), 20)),
+          (request) =>
+            new Promise((resolve) => {
+              request.signal?.addEventListener('abort', () => {
+                aborted = true;
+                resolve({ content: 'aborted' });
+              });
+            }),
         ),
       ]),
     });
@@ -77,5 +84,33 @@ describe('ProviderAgentExecutor', () => {
       code: 'TIMEOUT',
       retryable: true,
     });
+    expect(aborted).toBe(true);
+  });
+
+  it('propagates caller cancellation to the ModelProvider', async () => {
+    const node = agentNode();
+    const controller = new AbortController();
+    let providerSignal: AbortSignal | undefined;
+    const executor = new ProviderAgentExecutor({
+      providers: new ModelProviderRegistry([
+        new MockModelProvider((request) => {
+          providerSignal = request.signal;
+          return new Promise(() => {});
+        }),
+      ]),
+    });
+    const running = executor.execute({
+      node,
+      input: 'cancel',
+      variables: {},
+      nodeOutputs: {},
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(running).rejects.toMatchObject<Partial<AgentExecutionError>>({
+      code: 'CANCELLED',
+    });
+    expect(providerSignal?.aborted).toBe(true);
   });
 });

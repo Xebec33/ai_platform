@@ -40,14 +40,21 @@ export function evaluateLoopCondition(expression: string, state: LoopState): boo
 export function classifyLoopEdges(node: LoopNode, edges: WorkflowEdge[]): ClassifiedLoopEdges {
   const bodyId = text(node.config.bodyNodeId);
   const exitId = text(node.config.exitNodeId);
-  const body =
-    (bodyId ? edges.find((edge) => edge.target === bodyId) : undefined) ??
-    edges.find((edge) => isBodyLabel(edge.condition)) ??
-    edges[0];
-  const exit =
-    (exitId ? edges.find((edge) => edge.target === exitId) : undefined) ??
-    edges.find((edge) => isExitLabel(edge.condition)) ??
-    (edges.length > 1 ? edges[edges.length - 1] : undefined);
+  let body = bodyId
+    ? edges.find((edge) => edge.target === bodyId)
+    : edges.find((edge) => isBodyLabel(edge.condition));
+  let exit = exitId
+    ? edges.find((edge) => edge.target === exitId)
+    : edges.find((edge) => isExitLabel(edge.condition));
+
+  if (!body) body = edges.find((edge) => edge !== exit) ?? edges[0];
+  if (!exit) exit = edges.find((edge) => edge !== body) ?? edges.at(-1);
+  if (body && exit && body.id === exit.id) {
+    if (bodyId && exitId) exit = undefined;
+    else if (bodyId) exit = edges.find((edge) => edge !== body);
+    else if (exitId) body = edges.find((edge) => edge !== exit);
+    else exit = edges.find((edge) => edge !== body);
+  }
   return { body, exit, all: edges };
 }
 export const selectLoopEdges = classifyLoopEdges;

@@ -68,6 +68,8 @@ export class WorkflowRuntime {
 
   async execute(options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
     const startedAtMs = Date.now();
+    const workflowDeadlineMs =
+      this.workflowTimeoutMs === undefined ? undefined : startedAtMs + this.workflowTimeoutMs;
     const variables = clone({ ...this.workflow.variables, ...(options.variables ?? {}) });
     const nodeRuns: WorkflowNodeRun[] = [];
     const outputs: Record<string, JsonObject> = {};
@@ -150,7 +152,16 @@ export class WorkflowRuntime {
         } else if (current.type === 'agent') {
           const input = inputOf(current, variables, outputs);
           run.input = input;
-          const output = await this.agent(current, input, variables, outputs, run, options.signal);
+          const output = await this.agent(
+            current,
+            input,
+            variables,
+            outputs,
+            run,
+            options.signal,
+            workflowDeadlineMs,
+            'WORKFLOW_TIMEOUT',
+          );
           run.output = output;
           run.status = 'SUCCESS';
           outputs[current.id] = output;
@@ -167,6 +178,7 @@ export class WorkflowRuntime {
           break;
         } else if (current.type === 'condition') {
           current = this.conditionNode(current, variables, outputs);
+          run.attempts = 1;
         } else throw new WorkflowRuntimeError('暂不支持执行当前节点');
         run.finishedAt = new Date().toISOString();
         active = undefined;
@@ -196,19 +208,19 @@ export class WorkflowRuntime {
     const stopCondition = node.config.stopCondition;
     const maxLoopRetries = node.config.retry ?? 0;
     const loopTimeoutMs = node.config.timeout;
+    const workflowDeadlineMs =
+      this.workflowTimeoutMs === undefined ? undefined : startedAtMs + this.workflowTimeoutMs;
     const edges = this.workflow.edges.filter((edge) => edge.source === node.id);
     const routing = classifyLoopEdges(node, edges);
     if (!routing.body)
       throw new WorkflowRuntimeError('Loop 节点缺少 body 边：' + node.id, 'LOOP_CONFIG_ERROR');
     if (!routing.exit)
-      return {
-        attempts: 0,
-        status: 'SUCCESS',
-        next: this.node(routing.body.target),
-        lastOutput: outputs[node.id],
-      };
+      throw new WorkflowRuntimeError('Loop 节点缺少 exit 边：' + node.id, 'LOOP_CONFIG_ERROR');
     const exitNode = this.node(routing.exit.target);
     const bodyStartNode = this.node(routing.body.target);
+    const loopStartedAtMs = Date.now();
+    const loopDeadlineMs =
+      loopTimeoutMs === undefined ? undefined : loopStartedAtMs + loopTimeoutMs;
     const checkpointIndex = checkpoints.length;
     iterations[node.id] = 0;
     let lastOutput: JsonObject | undefined;
@@ -217,8 +229,8 @@ export class WorkflowRuntime {
     for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
       checkAbort(signal);
       if (loopTimeoutMs !== undefined) {
-        const elapsed = Date.now() - startedAtMs;
-        if (elapsed > loopTimeoutMs)
+        const elapsed = Date.now() - loopStartedAtMs;
+        if (elapsed >= loopTimeoutMs)
           throw new WorkflowRuntimeError('Loop 执行超时', 'LOOP_TIMEOUT');
       }
       checkWorkflowTimeout(this.workflowTimeoutMs, startedAtMs, signal);
@@ -234,6 +246,9 @@ export class WorkflowRuntime {
         iterations: { ...iterations },
         createdAt: new Date().toISOString(),
       });
+      const iterationVariables = clone(variables);
+      const iterationOutputs = cloneOutputs(outputs);
+      const iterationLastOutput = lastOutput;
       let iterationError: unknown;
       for (let retry = 0; retry <= maxLoopRetries; retry += 1) {
         checkAbort(signal);
@@ -248,11 +263,17 @@ export class WorkflowRuntime {
             nodeRuns,
             index + iteration * 100 + retry,
             signal,
+            minDeadline(loopDeadlineMs, workflowDeadlineMs),
+            deadlineCode(loopDeadlineMs, workflowDeadlineMs),
           );
           lastOutput = body.lastOutput;
           iterationError = undefined;
           break;
         } catch (error) {
+          if (isExecutionControlError(error)) throw error;
+          restoreJsonObject(variables, iterationVariables);
+          restoreOutputs(outputs, iterationOutputs);
+          lastOutput = iterationLastOutput;
           iterationError = error;
         }
       }
@@ -317,6 +338,8 @@ export class WorkflowRuntime {
     nodeRuns: WorkflowNodeRun[],
     baseIndex: number,
     signal: AbortSignal | undefined,
+    deadlineMs: number | undefined,
+    deadlineCode: string,
   ): Promise<{ lastOutput: JsonObject | undefined }> {
     let current: WorkflowNode | undefined = start;
     let lastOutput: JsonObject | undefined;
@@ -324,6 +347,7 @@ export class WorkflowRuntime {
     const visited = new Set<string>();
     while (current) {
       checkAbort(signal);
+      checkDeadline(deadlineMs, deadlineCode, signal);
       if (current.id === loopId) return { lastOutput };
       if (current.type === 'loop')
         throw new WorkflowRuntimeError('Phase 5 不支持嵌套 Loop', 'LOOP_NESTED');
@@ -337,36 +361,49 @@ export class WorkflowRuntime {
         iteration: iterations[loopId],
       };
       nodeRuns.push(run);
-      if (current.type === 'agent') {
-        const input = inputOf(current as AgentNode, variables, outputs);
-        run.input = input;
-        const output = await this.agent(
-          current as AgentNode,
-          input,
-          variables,
-          outputs,
-          run,
-          signal,
-        );
-        run.output = output;
+      try {
+        if (current.type === 'agent') {
+          const input = inputOf(current as AgentNode, variables, outputs);
+          run.input = input;
+          const output = await this.agent(
+            current as AgentNode,
+            input,
+            variables,
+            outputs,
+            run,
+            signal,
+            deadlineMs,
+            deadlineCode,
+          );
+          run.output = output;
+          outputs[current.id] = output;
+          lastOutput = output;
+          const key = current.outputKey ?? current.config.outputKey;
+          if (key) variables[key] = output;
+          current = this.next(current.id);
+        } else if (current.type === 'condition') {
+          current = this.conditionNode(current, variables, outputs);
+          run.attempts = 1;
+        } else if (current.type === 'start' || current.type === 'end') {
+          throw new WorkflowRuntimeError(
+            'Loop body 不允许出现 ' + current.type + ' 节点',
+            'LOOP_BODY_ERROR',
+          );
+        } else throw new WorkflowRuntimeError('Loop body 不支持当前节点');
         run.status = 'SUCCESS';
-        outputs[current.id] = output;
-        lastOutput = output;
-        const key = current.outputKey ?? current.config.outputKey;
-        if (key) variables[key] = output;
         run.finishedAt = new Date().toISOString();
-        current = this.next(current.id);
-      } else if (current.type === 'condition') {
-        current = this.conditionNode(current, variables, outputs);
-        run.attempts = 1;
-        run.status = 'SUCCESS';
+      } catch (error) {
+        run.status = 'FAILED';
+        run.error = error instanceof Error ? error.message : String(error);
+        run.errorCode =
+          error instanceof AgentExecutionError
+            ? error.code
+            : error instanceof WorkflowRuntimeError
+              ? error.code
+              : undefined;
         run.finishedAt = new Date().toISOString();
-      } else if (current.type === 'start' || current.type === 'end') {
-        throw new WorkflowRuntimeError(
-          'Loop body 不允许出现 ' + current.type + ' 节点',
-          'LOOP_BODY_ERROR',
-        );
-      } else throw new WorkflowRuntimeError('Loop body 不支持当前节点');
+        throw error;
+      }
       localIndex += 1;
       if (current && visited.has(current.id))
         throw new WorkflowRuntimeError('Loop body 出现循环回环：' + current.id, 'LOOP_BODY_CYCLE');
@@ -403,28 +440,41 @@ export class WorkflowRuntime {
     outputs: Readonly<Record<string, JsonObject>>,
     run: WorkflowNodeRun,
     signal?: AbortSignal,
+    deadlineMs?: number,
+    deadlineCode = 'WORKFLOW_TIMEOUT',
   ): Promise<JsonObject> {
     let last: unknown;
     for (let attempt = 1; attempt <= this.retries + 1; attempt += 1) {
       checkAbort(signal);
       run.attempts = attempt;
+      const execution = createChildAbortController(signal);
       try {
         const context: AgentExecutionContext = {
           node,
           input,
           variables,
           nodeOutputs: outputs,
-          signal,
+          signal: execution.signal,
         };
         const promise =
           typeof this.agentExecutor === 'function'
             ? this.agentExecutor(context)
             : this.agentExecutor.execute(context);
-        const value = await timeout(promise, this.timeout);
+        const value = await waitForAgent(
+          promise,
+          this.timeout,
+          signal,
+          deadlineMs,
+          deadlineCode,
+          execution.controller,
+        );
         if (!isObject(value.output)) throw new WorkflowRuntimeError('Agent 输出必须是对象');
         return clone(value.output);
       } catch (error) {
+        if (isExecutionControlError(error)) throw error;
         last = error;
+      } finally {
+        execution.dispose();
       }
     }
     throw last instanceof Error ? last : new WorkflowRuntimeError('Agent 执行失败');
@@ -487,8 +537,15 @@ export class WorkflowRuntime {
     target: WorkflowCheckpoint[],
     checkpoint: WorkflowCheckpoint,
   ): Promise<void> {
-    target.push(checkpoint);
-    await this.checkpointStore.save(checkpoint);
+    try {
+      await this.checkpointStore.save(checkpoint);
+      target.push(checkpoint);
+    } catch (error) {
+      throw new WorkflowRuntimeError(
+        'Checkpoint 保存失败: ' + (error instanceof Error ? error.message : String(error)),
+        'CHECKPOINT_ERROR',
+      );
+    }
   }
 }
 
@@ -573,12 +630,119 @@ function cloneOutputs(value: Readonly<Record<string, JsonObject>>): Record<strin
 function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-function timeout<T>(promise: Promise<T>, ms?: number): Promise<T> {
-  if (ms === undefined) return promise;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new WorkflowRuntimeError('Agent 执行超时', 'NODE_TIMEOUT')), ms),
-    ),
-  ]);
+function minDeadline(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined) return right;
+  if (right === undefined) return left;
+  return Math.min(left, right);
+}
+function deadlineCode(
+  loopDeadline: number | undefined,
+  workflowDeadline: number | undefined,
+): string {
+  if (
+    loopDeadline !== undefined &&
+    (workflowDeadline === undefined || loopDeadline <= workflowDeadline)
+  )
+    return 'LOOP_TIMEOUT';
+  return 'WORKFLOW_TIMEOUT';
+}
+function checkDeadline(deadlineMs: number | undefined, code: string, signal?: AbortSignal): void {
+  checkAbort(signal);
+  if (deadlineMs !== undefined && Date.now() >= deadlineMs)
+    throw new WorkflowRuntimeError(
+      code === 'LOOP_TIMEOUT' ? 'Loop 执行超时' : 'Workflow 执行超时',
+      code,
+    );
+}
+function isExecutionControlError(error: unknown): boolean {
+  return (
+    error instanceof WorkflowRuntimeError &&
+    ['CANCELLED', 'WORKFLOW_TIMEOUT', 'LOOP_TIMEOUT'].includes(error.code)
+  );
+}
+function restoreJsonObject(target: JsonObject, snapshot: JsonObject): void {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, clone(snapshot));
+}
+function restoreOutputs(
+  target: Record<string, JsonObject>,
+  snapshot: Record<string, JsonObject>,
+): void {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, cloneOutputs(snapshot));
+}
+function waitForAgent<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  signal: AbortSignal | undefined,
+  deadlineMs: number | undefined,
+  deadlineErrorCode: string,
+  controller: AbortController,
+): Promise<T> {
+  const waits: Promise<T>[] = [promise];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+  const control = new Promise<never>((_, reject) => {
+    const rejectForAbort = () => {
+      controller.abort();
+      reject(new WorkflowRuntimeError('Workflow 已取消', 'CANCELLED'));
+    };
+    if (signal?.aborted) {
+      rejectForAbort();
+      return;
+    }
+    if (signal) {
+      abortListener = rejectForAbort;
+      signal.addEventListener('abort', abortListener, { once: true });
+    }
+    const deadlineDelay =
+      deadlineMs === undefined ? undefined : Math.max(0, deadlineMs - Date.now());
+    const delay =
+      timeoutMs === undefined
+        ? deadlineDelay
+        : deadlineDelay === undefined
+          ? timeoutMs
+          : Math.min(timeoutMs, deadlineDelay);
+    if (delay !== undefined) {
+      const code =
+        deadlineDelay !== undefined && deadlineDelay <= (timeoutMs ?? Number.POSITIVE_INFINITY)
+          ? deadlineErrorCode
+          : 'NODE_TIMEOUT';
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new WorkflowRuntimeError(
+            code === 'NODE_TIMEOUT'
+              ? 'Agent 执行超时'
+              : code === 'LOOP_TIMEOUT'
+                ? 'Loop 执行超时'
+                : 'Workflow 执行超时',
+            code,
+          ),
+        );
+      }, delay);
+    }
+  });
+  waits.push(control);
+  return Promise.race(waits).finally(() => {
+    if (timer) clearTimeout(timer);
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+  });
+}
+
+function createChildAbortController(parent?: AbortSignal): {
+  controller: AbortController;
+  signal: AbortSignal;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  if (!parent) return { controller, signal: controller.signal, dispose: () => {} };
+  const onAbort = () => controller.abort();
+  if (parent.aborted) onAbort();
+  else parent.addEventListener('abort', onAbort, { once: true });
+  return {
+    controller,
+    signal: controller.signal,
+    dispose: () => parent.removeEventListener('abort', onAbort),
+  };
 }

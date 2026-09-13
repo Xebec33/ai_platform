@@ -28,6 +28,7 @@ export class ProviderAgentExecutor implements AgentExecutor {
     const config = agentConfigFromNode(context.node);
     const startedAt = Date.now();
     const timeoutMs = config.timeout;
+    const execution = createChildAbortController(context.signal);
     try {
       const provider = this.providers.resolve(config.provider, config.model);
       const response = await withTimeout(
@@ -37,9 +38,11 @@ export class ProviderAgentExecutor implements AgentExecutor {
           input: context.input,
           temperature: config.temperature,
           maxTokens: config.maxTokens,
-          signal: context.signal,
+          signal: execution.signal,
         }),
         timeoutMs,
+        execution.controller,
+        execution.signal,
       );
       const output = parseOutput(response.content, config.outputSchema);
       return {
@@ -53,6 +56,8 @@ export class ProviderAgentExecutor implements AgentExecutor {
       throw new AgentExecutionError('LLM_ERROR', `Agent ${config.id} 调用模型失败`, true, {
         cause: error,
       });
+    } finally {
+      execution.dispose();
     }
   }
 }
@@ -80,20 +85,57 @@ function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
-  if (timeoutMs === undefined) return promise;
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  controller: AbortController,
+  signal: AbortSignal,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new AgentExecutionError('TIMEOUT', `Agent 执行超时（${timeoutMs}ms）`, true)),
-      timeoutMs,
-    );
+  let onAbort: (() => void) | undefined;
+  const cancellation = new Promise<never>((_, reject) => {
+    const rejectCancelled = () =>
+      reject(new AgentExecutionError('CANCELLED', 'Agent 执行已取消', false));
+    if (signal.aborted) {
+      rejectCancelled();
+      return;
+    }
+    onAbort = rejectCancelled;
+    signal.addEventListener('abort', onAbort, { once: true });
   });
+  const waits: Promise<T>[] = [promise, cancellation];
+  if (timeoutMs !== undefined) {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new AgentExecutionError('TIMEOUT', `Agent 执行超时（${timeoutMs}ms）`, true));
+        controller.abort();
+      }, timeoutMs);
+    });
+    waits.push(timeout);
+  }
   try {
-    return await Promise.race([promise, timeout]);
+    return await Promise.race(waits);
   } finally {
     if (timer) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener('abort', onAbort);
   }
+}
+
+function createChildAbortController(parent?: AbortSignal): {
+  controller: AbortController;
+  signal: AbortSignal;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  if (!parent) return { controller, signal: controller.signal, dispose: () => {} };
+  const onAbort = () => controller.abort();
+  if (parent.aborted) onAbort();
+  else parent.addEventListener('abort', onAbort, { once: true });
+  return {
+    controller,
+    signal: controller.signal,
+    dispose: () => parent.removeEventListener('abort', onAbort),
+  };
 }
 
 export function isAgentNode(value: unknown): value is AgentNode {
