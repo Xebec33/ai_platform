@@ -1,5 +1,7 @@
 import { Pool, type PoolConfig } from 'pg';
 import { PostgresPersistence } from '../persistence/index.js';
+import { PostgresJobQueue } from '../queue/jobs/postgres.js';
+import type { WorkflowWorkerOptions } from '../queue/worker.js';
 
 const DEFAULT_POOL_MAX = 10;
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
@@ -13,6 +15,26 @@ export function createPostgresPersistenceFromEnv(): PostgresPersistence | undefi
     return undefined;
   }
   return new PostgresPersistence(new Pool(config));
+}
+
+export function createPostgresJobQueueFromEnv(): PostgresJobQueue | undefined {
+  const config = createPostgresPoolConfigFromEnv();
+  if (!config) return undefined;
+  return new PostgresJobQueue(new Pool(config));
+}
+
+export function createWorkflowWorkerOptionsFromEnv(): WorkflowWorkerOptions {
+  return {
+    workerId: process.env.WORKER_ID?.trim() || undefined,
+    concurrency: readInteger('WORKER_CONCURRENCY', 1, 1),
+    leaseMs: readInteger('QUEUE_LEASE_MS', 30_000, 1),
+    pollIntervalMs: readInteger('QUEUE_POLL_INTERVAL_MS', 250, 1),
+    retryDelayMs: readInteger('QUEUE_RETRY_DELAY_MS', 1_000, 0),
+    maxJobAttempts: readInteger('QUEUE_MAX_ATTEMPTS', 3, 1),
+    maxAgentRetries: readInteger('WORKER_AGENT_MAX_RETRIES', 0, 0),
+    agentTimeoutMs: readOptionalInteger('WORKER_AGENT_TIMEOUT_MS'),
+    workflowTimeoutMs: readOptionalInteger('WORKFLOW_TIMEOUT_MS'),
+  };
 }
 
 export function createPostgresPoolConfigFromEnv(): PoolConfig | undefined {
@@ -54,6 +76,12 @@ function readBoolean(name: string, defaultValue: boolean): boolean {
   if (['1', 'true', 'yes', 'on'].includes(value)) return true;
   if (['0', 'false', 'no', 'off'].includes(value)) return false;
   throw new Error(`${name} 必须是 true/false`);
+}
+
+function readOptionalInteger(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  return readInteger(name, 0, 1);
 }
 
 function readInteger(name: string, defaultValue: number, minimum: number): number {

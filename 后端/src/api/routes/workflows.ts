@@ -5,6 +5,7 @@ import {
 } from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
 import type { ToolRegistry } from '../../tools/index.js';
+import type { JobQueue } from '../../queue/jobs/types.js';
 import {
   createWorkflowRuntime,
   WorkflowValidationError,
@@ -29,6 +30,10 @@ export async function registerWorkflowRoutes(
     monitor?: RunMonitor;
     toolRegistry?: ToolRegistry;
     workspaceRoot?: string;
+    queue?: JobQueue;
+    asyncRuns?: boolean;
+    maxJobAttempts?: number;
+    jobTimeoutMs?: number;
   } = {},
 ): Promise<void> {
   app.post<{ Body: WorkflowBody }>('/workflows', async (request, reply) => {
@@ -57,6 +62,37 @@ export async function registerWorkflowRoutes(
   app.post<{ Body: RunBody }>('/workflows/run', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
     try {
+      const validation = validateWorkflow(request.body.workflow);
+      if (!validation.valid)
+        return reply.code(400).send({ error: 'Workflow 校验失败', issues: validation.issues });
+      if (options.asyncRuns && options.queue) {
+        if (!options.persistence?.saveWorkflow)
+          return reply.code(503).send({ error: '异步运行需要配置持久化' });
+        await options.persistence.saveWorkflow(request.body.workflow);
+        const runId = 'run-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        const jobId = 'job-' + runId;
+        await options.persistence.saveRun({
+          id: runId,
+          workflowId: request.body.workflow.id,
+          status: 'PENDING',
+          variables: request.body.variables ?? {},
+          nodeRuns: [],
+          iterations: {},
+          checkpoints: [],
+          startedAt: new Date().toISOString(),
+        });
+        const job = await options.queue.enqueue({
+          id: jobId,
+          runId,
+          workflowId: request.body.workflow.id,
+          payload: {
+            variables: request.body.variables ?? {},
+            ...(options.jobTimeoutMs === undefined ? {} : { timeoutMs: options.jobTimeoutMs }),
+          },
+          maxAttempts: options.maxJobAttempts,
+        });
+        return reply.code(202).send({ id: runId, jobId: job.id, status: job.status });
+      }
       const runtimeOptions: WorkflowRuntimeOptions = {
         maxAgentRetries: 0,
         persistence: options.persistence,

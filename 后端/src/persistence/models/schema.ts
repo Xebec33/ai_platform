@@ -65,4 +65,27 @@ ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS output JSONB;
 CREATE INDEX IF NOT EXISTS workflow_runs_workflow_id_idx ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS node_runs_run_id_idx ON node_runs(run_id);
 CREATE INDEX IF NOT EXISTS checkpoints_run_id_idx ON checkpoints(run_id);
+
+CREATE TABLE IF NOT EXISTS workflow_jobs (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED')),
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 1 CHECK (max_attempts >= 1),
+  available_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  locked_by TEXT,
+  locked_until TIMESTAMPTZ,
+  error TEXT,
+  error_code TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS workflow_jobs_claim_idx
+  ON workflow_jobs (status, available_at, created_at);
+CREATE INDEX IF NOT EXISTS workflow_jobs_run_id_idx
+  ON workflow_jobs (run_id);
 `;

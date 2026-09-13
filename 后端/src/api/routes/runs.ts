@@ -2,10 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import type { RunMonitor } from '../../runs/run-monitor.js';
 import type { WorkflowPersistence } from '../../workflow/runtime/types.js';
 import type { WorkflowRunEvent } from '../../workflow/runtime/events.js';
+import type { JobQueue, WorkflowJob } from '../../queue/jobs/types.js';
 
 export interface RunRoutesOptions {
   monitor?: RunMonitor;
   persistence?: WorkflowPersistence;
+  queue?: JobQueue;
+  cancelJob?: (jobId: string) => Promise<WorkflowJob | undefined>;
 }
 
 export async function registerRunRoutes(
@@ -30,6 +33,23 @@ export async function registerRunRoutes(
     const persisted = await options.persistence?.getRun?.(request.params.runId);
     if (persisted) return reply.send(persisted);
     return reply.code(404).send({ error: 'Run 不存在' });
+  });
+
+  app.get<{ Params: { runId: string } }>('/runs/:runId/job', async (request, reply) => {
+    const job = await options.queue?.getByRunId(request.params.runId);
+    if (!job) return reply.code(404).send({ error: 'Job 不存在' });
+    return reply.send(job);
+  });
+
+  app.post<{ Params: { runId: string } }>('/runs/:runId/cancel', async (request, reply) => {
+    if (!options.queue) return reply.code(503).send({ error: 'Job Queue 未配置' });
+    const job = await options.queue.getByRunId(request.params.runId);
+    if (!job) return reply.code(404).send({ error: 'Job 不存在' });
+    const cancelled = options.cancelJob
+      ? await options.cancelJob(job.id)
+      : await options.queue.cancel(job.id);
+    if (!cancelled) return reply.code(409).send({ error: 'Job 已完成或正在被其他 Worker 执行' });
+    return reply.send(cancelled);
   });
 
   app.get<{ Params: { runId: string } }>('/runs/:runId/events', async (request, reply) => {

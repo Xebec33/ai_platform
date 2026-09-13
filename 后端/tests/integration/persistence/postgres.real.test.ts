@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createWorkflowDefinition } from '@ai-workflow/shared-types';
 import { PostgresPersistence } from '../../../src/persistence/index.js';
+import { PostgresJobQueue } from '../../../src/queue/jobs/postgres.js';
 import type { WorkflowRunResult } from '../../../src/workflow/runtime/types.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -12,12 +13,15 @@ const resources: Array<{
   persistence: PostgresPersistence;
   workflowId: string;
   runId: string;
+  jobIds: string[];
 }> = [];
 
 describeDatabase('PostgreSQL persistence', () => {
   afterEach(async () => {
     const resource = resources.pop();
     if (!resource) return;
+    for (const jobId of resource.jobIds)
+      await resource.pool.query('DELETE FROM workflow_jobs WHERE id = $1', [jobId]);
     await resource.pool.query('DELETE FROM workflow_runs WHERE id = $1', [resource.runId]);
     await resource.pool.query('DELETE FROM workflows WHERE id = $1', [resource.workflowId]);
     await resource.persistence.close();
@@ -28,7 +32,7 @@ describeDatabase('PostgreSQL persistence', () => {
     const persistence = new PostgresPersistence(pool);
     const workflowId = 'integration-' + randomUUID();
     const runId = 'run-' + randomUUID();
-    resources.push({ pool, persistence, workflowId, runId });
+    resources.push({ pool, persistence, workflowId, runId, jobIds: [] });
     const workflow = createWorkflowDefinition(workflowId, 'Postgres integration');
     const now = new Date().toISOString();
     const run: WorkflowRunResult = {
@@ -104,5 +108,41 @@ describeDatabase('PostgreSQL persistence', () => {
     expect(restoredRun?.nodeRuns).toHaveLength(1);
     expect(restoredRun?.checkpoints).toHaveLength(1);
     expect(restoredState.rows[0]).toMatchObject({ current_node: 'end-1', iteration: 2 });
+  });
+
+  it('does not reclaim an expired lease after max attempts is reached', async () => {
+    const pool = new Pool({ connectionString: databaseUrl });
+    const persistence = new PostgresPersistence(pool);
+    const queue = new PostgresJobQueue(pool);
+    const workflowId = 'integration-job-' + randomUUID();
+    const runId = 'run-job-' + randomUUID();
+    const jobId = 'job-' + randomUUID();
+    resources.push({ pool, persistence, workflowId, runId, jobIds: [jobId] });
+    await persistence.migrate();
+    await persistence.saveWorkflow(createWorkflowDefinition(workflowId, 'Job integration'));
+    await queue.enqueue({
+      id: jobId,
+      runId,
+      workflowId,
+      payload: { variables: {} },
+      maxAttempts: 1,
+      availableAt: new Date(Date.now() + 10_000),
+    });
+    await pool.query(
+      `UPDATE workflow_jobs
+       SET status = 'RUNNING', attempts = 1, locked_by = 'worker-a',
+           locked_until = NOW() - INTERVAL '1 second'
+       WHERE id = $1`,
+      [jobId],
+    );
+
+    const secondClaim = await queue.claim('worker-b', 20);
+    expect(secondClaim).toBeUndefined();
+    await expect(queue.get(jobId)).resolves.toMatchObject({
+      id: jobId,
+      status: 'FAILED',
+      attempts: 1,
+      errorCode: 'MAX_ATTEMPTS_REACHED',
+    });
   });
 });
