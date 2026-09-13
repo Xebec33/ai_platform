@@ -42,6 +42,8 @@ export class WorkflowRuntime {
   private readonly persistence?: WorkflowPersistence;
   private readonly eventSink?: WorkflowEventSink;
   private readonly runMonitor?: RunMonitor;
+  private readonly toolRegistry?: import('../../tools/index.js').ToolRegistry;
+  private readonly workspaceRoot?: string;
 
   constructor(
     private readonly workflow: WorkflowDefinition,
@@ -69,6 +71,8 @@ export class WorkflowRuntime {
     this.persistence = options.persistence;
     this.eventSink = options.eventSink;
     this.runMonitor = options.runMonitor;
+    this.toolRegistry = options.toolRegistry;
+    this.workspaceRoot = options.workspaceRoot;
   }
 
   run(options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
@@ -201,6 +205,8 @@ export class WorkflowRuntime {
             options.signal,
             workflowDeadlineMs,
             'WORKFLOW_TIMEOUT',
+            this.toolRegistry,
+            this.workspaceRoot,
           );
           run.output = output;
           run.status = 'SUCCESS';
@@ -506,6 +512,8 @@ export class WorkflowRuntime {
             signal,
             deadlineMs,
             deadlineCode,
+            this.toolRegistry,
+            this.workspaceRoot,
           );
           run.output = output;
           outputs[current.id] = output;
@@ -590,6 +598,8 @@ export class WorkflowRuntime {
     signal?: AbortSignal,
     deadlineMs?: number,
     deadlineCode = 'WORKFLOW_TIMEOUT',
+    toolRegistry?: import('../../tools/index.js').ToolRegistry,
+    workspaceRoot?: string,
   ): Promise<JsonObject> {
     let last: unknown;
     for (let attempt = 1; attempt <= this.retries + 1; attempt += 1) {
@@ -603,6 +613,8 @@ export class WorkflowRuntime {
           variables,
           nodeOutputs: outputs,
           signal: execution.signal,
+          toolRegistry,
+          workspaceRoot,
         };
         const promise =
           typeof this.agentExecutor === 'function'

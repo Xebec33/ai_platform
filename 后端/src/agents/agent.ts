@@ -1,4 +1,5 @@
 import type { AgentNode, JsonObject, JsonValue } from '@ai-workflow/shared-types';
+import type { ToolRegistry } from '../tools/index.js';
 
 export interface AgentConfig {
   id: string;
@@ -20,6 +21,8 @@ export interface AgentInput {
   variables: JsonObject;
   nodeOutputs: Readonly<Record<string, JsonObject>>;
   signal?: AbortSignal;
+  toolRegistry?: ToolRegistry;
+  workspaceRoot?: string;
 }
 
 export interface TokenUsage {
@@ -33,6 +36,7 @@ export interface AgentOutput {
   rawText?: string;
   usage?: TokenUsage;
   latencyMs?: number;
+  toolCalls?: number;
 }
 
 export interface AgentExecutionContext extends AgentInput {

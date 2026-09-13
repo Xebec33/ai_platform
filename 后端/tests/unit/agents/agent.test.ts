@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorkflowDefinition } from '@ai-workflow/shared-types';
 import { AgentExecutionError, ProviderAgentExecutor } from '../../../src/agents/index.js';
 import { MockModelProvider, ModelProviderRegistry } from '../../../src/agents/model-provider.js';
+import { FileReadTool, ToolRegistry } from '../../../src/tools/index.js';
 
 function agentNode() {
   const node = createWorkflowDefinition().nodes.find((item) => item.type === 'agent');
@@ -59,6 +60,38 @@ describe('ProviderAgentExecutor', () => {
       code: 'PARSING_ERROR',
       retryable: false,
     });
+  });
+
+  it('executes provider tool calls and sends tool results back to the provider', async () => {
+    const root = await (await import('node:fs/promises')).mkdtemp('/tmp/ai-workflow-agent-');
+    await (await import('node:fs/promises')).writeFile(`${root}/note.txt`, 'from tool');
+    const requests: unknown[] = [];
+    const provider = new MockModelProvider((request) => {
+      requests.push(request);
+      if (request.toolResults?.length)
+        return { content: JSON.stringify({ answer: request.toolResults[0]?.output?.content }) };
+      return {
+        content: '',
+        toolCalls: [{ id: 'call-1', name: 'file_read', input: { path: 'note.txt' } }],
+      };
+    });
+    const node = agentNode();
+    node.config.outputSchema = { type: 'object' };
+    const executor = new ProviderAgentExecutor({
+      providers: new ModelProviderRegistry([provider]),
+    });
+    await expect(
+      executor.execute({
+        node,
+        input: 'read note',
+        variables: {},
+        nodeOutputs: {},
+        toolRegistry: new ToolRegistry([new FileReadTool()]),
+        workspaceRoot: root,
+      }),
+    ).resolves.toMatchObject({ output: { answer: 'from tool' }, toolCalls: 1 });
+    expect(requests).toHaveLength(2);
+    await (await import('node:fs/promises')).rm(root, { recursive: true, force: true });
   });
 
   it('classifies provider timeout and aborts the underlying request', async () => {

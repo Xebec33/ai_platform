@@ -105,6 +105,8 @@ export interface WorkflowRuntimeOptions {
   workflowTimeoutMs?: number;
   checkpointStore?: CheckpointStore;
   persistence?: WorkflowPersistence;
+  toolRegistry?: import('../../tools/index.js').ToolRegistry;
+  workspaceRoot?: string;
 }
 
 export class WorkflowValidationError extends Error {

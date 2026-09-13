@@ -4,6 +4,7 @@ import {
   type WorkflowDefinition,
 } from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
+import type { ToolRegistry } from '../../tools/index.js';
 import {
   createWorkflowRuntime,
   WorkflowValidationError,
@@ -23,7 +24,12 @@ interface WorkflowBody {
 
 export async function registerWorkflowRoutes(
   app: FastifyInstance,
-  options: { persistence?: WorkflowPersistence; monitor?: RunMonitor } = {},
+  options: {
+    persistence?: WorkflowPersistence;
+    monitor?: RunMonitor;
+    toolRegistry?: ToolRegistry;
+    workspaceRoot?: string;
+  } = {},
 ): Promise<void> {
   app.post<{ Body: WorkflowBody }>('/workflows', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
@@ -55,6 +61,8 @@ export async function registerWorkflowRoutes(
         maxAgentRetries: 0,
         persistence: options.persistence,
         runMonitor: options.monitor,
+        toolRegistry: options.toolRegistry,
+        workspaceRoot: options.workspaceRoot,
       };
       const result = await createWorkflowRuntime(request.body.workflow, runtimeOptions).execute({
         variables: request.body.variables,

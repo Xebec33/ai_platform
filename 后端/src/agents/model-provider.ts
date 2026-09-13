@@ -1,5 +1,25 @@
-import type { JsonValue } from '@ai-workflow/shared-types';
+import type { JsonObject, JsonValue } from '@ai-workflow/shared-types';
 import type { TokenUsage } from './agent.js';
+
+export interface ModelToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: JsonObject;
+}
+
+export interface ModelToolCall {
+  id: string;
+  name: string;
+  input: JsonObject;
+}
+
+export interface ModelToolResult {
+  toolCallId: string;
+  name: string;
+  ok: boolean;
+  output?: JsonObject;
+  error?: { code: string; message: string };
+}
 
 export interface ModelRequest {
   model: string;
@@ -7,12 +27,15 @@ export interface ModelRequest {
   input: JsonValue;
   temperature?: number;
   maxTokens?: number;
+  tools?: ReadonlyArray<ModelToolDefinition>;
+  toolResults?: ReadonlyArray<ModelToolResult>;
   signal?: AbortSignal;
 }
 
 export interface ModelResponse {
   content: string;
   usage?: TokenUsage;
+  toolCalls?: ReadonlyArray<ModelToolCall>;
 }
 
 export interface ModelProvider {

@@ -1,4 +1,6 @@
 import type { AgentNode, JsonObject } from '@ai-workflow/shared-types';
+import { ToolError } from '../tools/types.js';
+import type { ModelToolResult } from './model-provider.js';
 import {
   agentConfigFromNode,
   AgentExecutionError,
@@ -15,13 +17,18 @@ import {
 export interface AgentExecutorOptions {
   providers?: ProviderRegistry;
   timeoutMs?: number;
+  maxToolRounds?: number;
 }
 
 export class ProviderAgentExecutor implements AgentExecutor {
   private readonly providers: ProviderRegistry;
+  private readonly maxToolRounds: number;
 
   constructor(options: AgentExecutorOptions = {}) {
     this.providers = options.providers ?? createDefaultModelProviderRegistry();
+    this.maxToolRounds = options.maxToolRounds ?? 4;
+    if (!Number.isInteger(this.maxToolRounds) || this.maxToolRounds < 0)
+      throw new Error('maxToolRounds 必须是非负整数');
   }
 
   async execute(context: AgentExecutionContext): Promise<AgentOutput> {
@@ -31,25 +38,86 @@ export class ProviderAgentExecutor implements AgentExecutor {
     const execution = createChildAbortController(context.signal);
     try {
       const provider = this.providers.resolve(config.provider, config.model);
-      const response = await withTimeout(
+      const tools = context.toolRegistry;
+      let toolResults: ModelToolResult[] = [];
+      let toolCalls = 0;
+      let response = await withTimeout(
         provider.complete({
           model: config.model,
           systemPrompt: config.systemPrompt,
           input: context.input,
           temperature: config.temperature,
           maxTokens: config.maxTokens,
+          tools: tools?.list(),
+          toolResults,
           signal: execution.signal,
         }),
         timeoutMs,
         execution.controller,
         execution.signal,
       );
+      for (let round = 0; response.toolCalls?.length; round += 1) {
+        if (!tools || !context.workspaceRoot)
+          throw new AgentExecutionError(
+            'TOOL_ERROR',
+            'Agent 请求调用 Tool，但未配置 Tool Registry 或 workspace',
+            false,
+          );
+        if (round >= this.maxToolRounds)
+          throw new AgentExecutionError(
+            'TOOL_ERROR',
+            `Tool 调用超过最大轮数（${this.maxToolRounds}）`,
+            false,
+          );
+        const results: ModelToolResult[] = [];
+        for (const call of response.toolCalls) {
+          toolCalls += 1;
+          let result;
+          try {
+            result = await tools.execute(call.name, call.input, {
+              workspaceRoot: context.workspaceRoot,
+              signal: execution.signal,
+            });
+          } catch (error) {
+            if (error instanceof ToolError) {
+              result = {
+                ok: false,
+                error: { code: error.code, message: error.message },
+              };
+            } else throw error;
+          }
+          results.push({
+            toolCallId: call.id,
+            name: call.name,
+            ok: result.ok,
+            output: result.output,
+            error: result.error,
+          });
+        }
+        toolResults = [...toolResults, ...results];
+        response = await withTimeout(
+          provider.complete({
+            model: config.model,
+            systemPrompt: config.systemPrompt,
+            input: context.input,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens,
+            tools: tools.list(),
+            toolResults,
+            signal: execution.signal,
+          }),
+          timeoutMs,
+          execution.controller,
+          execution.signal,
+        );
+      }
       const output = parseOutput(response.content, config.outputSchema);
       return {
         output,
         rawText: response.content,
         usage: response.usage,
         latencyMs: Date.now() - startedAt,
+        toolCalls,
       };
     } catch (error) {
       if (error instanceof AgentExecutionError) throw error;
