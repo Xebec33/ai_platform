@@ -50,6 +50,26 @@ export async function resolveWritableWorkspacePath(
   return resolved;
 }
 
+export async function resolveWorkspaceCommandPath(
+  workspaceRoot: string,
+  requestedPath: string,
+): Promise<string> {
+  const root = normalizedRoot(workspaceRoot);
+  const resolved = resolveWorkspacePath(root, requestedPath);
+  const parent = await realpathNearestExisting(path.dirname(resolved));
+  assertWithinWorkspace(root, parent);
+  try {
+    const details = await lstat(resolved);
+    if (details.isSymbolicLink())
+      throw new ToolError('WORKSPACE_BOUNDARY', '命令路径不能是符号链接');
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+  }
+  if (requestedPath.startsWith(':'))
+    throw new ToolError('INVALID_INPUT', '命令路径不能使用 Git pathspec magic');
+  return path.relative(root, resolved) || '.';
+}
+
 export async function ensureWorkspaceDirectory(
   workspaceRoot: string,
   requestedPath: string | undefined,

@@ -10,6 +10,7 @@ import {
   SearchTool,
   ShellTool,
   ToolRegistry,
+  runWorkspaceCommand,
 } from '../../src/tools/index.js';
 
 const roots: string[] = [];
@@ -47,7 +48,7 @@ describe('Tool System', () => {
     });
   });
 
-  it('executes an allowed command and rejects shell composition', async () => {
+  it('executes safe commands and rejects file-capable or composed commands', async () => {
     const root = await workspace();
     const shell = new ShellTool({ timeoutMs: 1_000 });
     await expect(
@@ -62,19 +63,57 @@ describe('Tool System', () => {
       ok: false,
       error: { code: 'SHELL_ERROR' },
     });
+    await expect(
+      shell.execute({ command: 'cat /etc/passwd' }, { workspaceRoot: root }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'COMMAND_NOT_ALLOWED' },
+    });
+    await expect(
+      new ShellTool({ allowedCommands: ['cat'] }).execute(
+        { command: 'cat /etc/passwd' },
+        { workspaceRoot: root },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'COMMAND_NOT_ALLOWED' },
+    });
+  });
+
+  it('rejects Git operations when the workspace is nested inside an outer repository', async () => {
+    const outer = await workspace();
+    const nested = path.join(outer, 'nested');
+    await (await import('node:fs/promises')).mkdir(nested);
+    await runWorkspaceCommand('git', ['init'], { workspaceRoot: outer }, { cwd: outer });
+    await expect(
+      new GitTool().execute({ operation: 'status' }, { workspaceRoot: nested }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'WORKSPACE_BOUNDARY' },
+    });
   });
 
   it('exposes Git status through the same tool contract', async () => {
     const root = await workspace();
     await writeFile(path.join(root, 'tracked.txt'), 'content');
-    const init = new ShellTool({ allowedCommands: ['git'], timeoutMs: 2_000 });
-    await init.execute({ command: 'git init' }, { workspaceRoot: root });
+    await runWorkspaceCommand(
+      'git',
+      ['init'],
+      { workspaceRoot: root },
+      { cwd: root, timeoutMs: 2_000 },
+    );
     const git = new GitTool();
     await expect(
       git.execute({ operation: 'status' }, { workspaceRoot: root }),
     ).resolves.toMatchObject({
       ok: true,
       output: { operation: 'status', exitCode: 0 },
+    });
+    await expect(
+      git.execute({ operation: 'diff', paths: ['../outside.txt'] }, { workspaceRoot: root }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'WORKSPACE_BOUNDARY' },
     });
   });
 

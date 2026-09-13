@@ -1,9 +1,12 @@
+import path from 'node:path';
 import type { JsonObject } from '@ai-workflow/shared-types';
 import { runWorkspaceCommand } from '../shell/index.js';
+import { normalizeWorkspaceRoot, resolveWorkspaceCommandPath } from '../workspace.js';
 import {
   optionalPositiveInteger,
   requiredString,
   toolFailure,
+  ToolError,
   type Tool,
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -30,9 +33,26 @@ export class GitTool implements Tool {
   async execute(input: JsonObject, context: ToolExecutionContext): Promise<ToolExecutionResult> {
     try {
       const operation = requiredString(input, 'operation');
-      const args = this.argsFor(operation, input);
+      const workspaceRoot = normalizeWorkspaceRoot(context.workspaceRoot);
+      const args = await this.argsFor(operation, input, workspaceRoot);
       const timeoutMs = optionalPositiveInteger(input, 'timeoutMs') ?? 30_000;
-      const result = await runWorkspaceCommand('git', args, context, { timeoutMs });
+      const env = gitEnvironment();
+      const discovery = await runWorkspaceCommand(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        context,
+        { cwd: workspaceRoot, timeoutMs, env },
+      );
+      if (discovery.exitCode === 0) {
+        const repositoryRoot = normalizeWorkspaceRoot(discovery.stdout.trim());
+        if (!isWithinWorkspace(workspaceRoot, repositoryRoot))
+          throw new ToolError('WORKSPACE_BOUNDARY', 'Git 仓库根目录必须位于 workspaceRoot 内');
+      }
+      const result = await runWorkspaceCommand('git', args, context, {
+        cwd: workspaceRoot,
+        timeoutMs,
+        env,
+      });
       const output: JsonObject = {
         operation,
         stdout: result.stdout,
@@ -56,12 +76,16 @@ export class GitTool implements Tool {
     }
   }
 
-  private argsFor(operation: string, input: JsonObject): string[] {
+  private async argsFor(
+    operation: string,
+    input: JsonObject,
+    workspaceRoot: string,
+  ): Promise<string[]> {
     switch (operation) {
       case 'status':
         return ['status', '--short', '--branch'];
       case 'diff':
-        return ['diff', '--', ...pathsOf(input)];
+        return ['diff', '--', ...(await pathsOf(input, workspaceRoot))];
       case 'branch':
         return ['branch', '--show-current'];
       case 'checkout': {
@@ -80,7 +104,7 @@ export class GitTool implements Tool {
   }
 }
 
-function pathsOf(input: JsonObject): string[] {
+async function pathsOf(input: JsonObject, workspaceRoot: string): Promise<string[]> {
   const value = input.paths;
   if (value === undefined) return [];
   if (
@@ -88,7 +112,21 @@ function pathsOf(input: JsonObject): string[] {
     value.some((item) => typeof item !== 'string' || item.startsWith('-'))
   )
     throw new Error('paths 必须是字符串数组且不能包含选项');
-  return value.filter((item): item is string => typeof item === 'string');
+  const paths = value.filter((item): item is string => typeof item === 'string');
+  return Promise.all(paths.map((item) => resolveWorkspaceCommandPath(workspaceRoot, item)));
+}
+
+function gitEnvironment(): NodeJS.ProcessEnv {
+  return {
+    GIT_DIR: undefined,
+    GIT_INDEX_FILE: undefined,
+    GIT_WORK_TREE: undefined,
+  };
+}
+
+function isWithinWorkspace(workspaceRoot: string, value: string): boolean {
+  const relative = path.relative(workspaceRoot, value);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function errorCode(error: unknown, fallback: string): string {

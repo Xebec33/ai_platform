@@ -15,6 +15,7 @@ import {
 export interface WorkspaceCommandOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface WorkspaceCommandResult {
@@ -26,7 +27,7 @@ export interface WorkspaceCommandResult {
   outputLimitExceeded: boolean;
 }
 
-const DEFAULT_ALLOWED_COMMANDS = ['cat', 'echo', 'git', 'ls', 'printf', 'pwd'];
+const DEFAULT_ALLOWED_COMMANDS = ['echo', 'printf', 'pwd'];
 
 export class ShellTool implements Tool {
   readonly name = 'shell';
@@ -42,13 +43,20 @@ export class ShellTool implements Tool {
     additionalProperties: false,
   };
 
+  private readonly allowedCommands: ReadonlySet<string>;
+
   constructor(
     private readonly options: {
       allowedCommands?: ReadonlyArray<string>;
       timeoutMs?: number;
       maxOutputBytes?: number;
     } = {},
-  ) {}
+  ) {
+    const configured = options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS;
+    this.allowedCommands = new Set(
+      configured.filter((command) => DEFAULT_ALLOWED_COMMANDS.includes(command)),
+    );
+  }
 
   async execute(input: JsonObject, context: ToolExecutionContext): Promise<ToolExecutionResult> {
     try {
@@ -62,10 +70,10 @@ export class ShellTool implements Tool {
       const tokens = parseCommand(command);
       const executable = tokens[0];
       if (!executable) return toolFailure('INVALID_INPUT', 'command 不能为空');
-      const allowed = this.options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS;
       const commandName = path.basename(executable);
-      if (!allowed.includes(commandName))
+      if (executable !== commandName || !this.allowedCommands.has(commandName))
         return toolFailure('COMMAND_NOT_ALLOWED', `不允许执行命令：${commandName}`);
+      validateSafeCommandArguments(commandName, tokens.slice(1));
       const result = await runWorkspaceCommand(
         executable,
         tokens.slice(1),
@@ -108,7 +116,11 @@ export async function runWorkspaceCommand(
   const maxOutputBytes = options.maxOutputBytes ?? 256 * 1024;
   const timeoutMs = options.timeoutMs ?? 30_000;
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, [...args], { cwd, shell: false });
+    const child = spawn(executable, [...args], {
+      cwd,
+      shell: false,
+      env: mergeProcessEnv(options.env),
+    });
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -164,6 +176,19 @@ function parseCommand(command: string): string[] {
   }
   if (command.slice(consumed).trim()) throw new Error('command 参数无法解析');
   return tokens;
+}
+
+function mergeProcessEnv(overrides: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+  return env;
+}
+
+function validateSafeCommandArguments(command: string, args: ReadonlyArray<string>): void {
+  if (command === 'pwd' && args.length > 0) throw new Error('pwd 不接受命令参数');
 }
 
 function errorCode(error: unknown, fallback: string): string {
