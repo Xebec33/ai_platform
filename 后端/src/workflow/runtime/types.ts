@@ -50,6 +50,31 @@ export interface CheckpointStore {
   save(checkpoint: WorkflowCheckpoint): void | Promise<void>;
 }
 
+export interface WorkflowPersistenceState {
+  runId: string;
+  workflowId: string;
+  currentNode?: string;
+  iteration?: number;
+  variables: JsonObject;
+  nodeOutputs: Readonly<Record<string, JsonObject>>;
+}
+
+export interface WorkflowPersistence {
+  migrate?(): void | Promise<void>;
+  close?(): void | Promise<void>;
+  saveWorkflow(workflow: WorkflowDefinition): void | Promise<void>;
+  saveRun(
+    run: WorkflowRunResult,
+    currentNode?: string,
+    nodeOutputs?: Readonly<Record<string, JsonObject>>,
+  ): void | Promise<void>;
+  saveNodeRun(runId: string, nodeRun: WorkflowNodeRun): void | Promise<void>;
+  saveState(state: WorkflowPersistenceState): void | Promise<void>;
+  saveCheckpoint(checkpoint: WorkflowCheckpoint): void | Promise<void>;
+  getWorkflow?(workflowId: string): Promise<WorkflowDefinition | undefined>;
+  getRun?(runId: string): Promise<WorkflowRunResult | undefined>;
+}
+
 export interface WorkflowRunResult {
   id: string;
   workflowId: string;
@@ -73,6 +98,7 @@ export interface WorkflowRuntimeOptions {
   nodeRunIdFactory?: (nodeId: string, index: number) => string;
   workflowTimeoutMs?: number;
   checkpointStore?: CheckpointStore;
+  persistence?: WorkflowPersistence;
 }
 
 export class WorkflowValidationError extends Error {

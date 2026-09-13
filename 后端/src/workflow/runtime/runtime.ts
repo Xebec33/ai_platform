@@ -19,6 +19,7 @@ import {
   type WorkflowNodeRun,
   type WorkflowCheckpoint,
   type CheckpointStore,
+  type WorkflowPersistence,
 } from './types.js';
 import { AgentExecutionError, createDefaultAgentExecutor } from '../../agents/index.js';
 import { evaluateLoopStopCondition, classifyLoopEdges } from './loop.js';
@@ -36,6 +37,7 @@ export class WorkflowRuntime {
   private readonly makeNodeRunId: (id: string, index: number) => string;
   private readonly checkpointStore: CheckpointStore;
   private readonly workflowTimeoutMs?: number;
+  private readonly persistence?: WorkflowPersistence;
 
   constructor(
     private readonly workflow: WorkflowDefinition,
@@ -60,6 +62,7 @@ export class WorkflowRuntime {
     this.makeNodeRunId = options.nodeRunIdFactory ?? ((id, index) => id + '-run-' + (index + 1));
     this.checkpointStore = options.checkpointStore ?? new NoOpCheckpointStore();
     this.workflowTimeoutMs = options.workflowTimeoutMs;
+    this.persistence = options.persistence;
   }
 
   run(options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
@@ -89,6 +92,7 @@ export class WorkflowRuntime {
     let lastOutput: JsonObject | undefined;
     let active: WorkflowNodeRun | undefined;
     try {
+      await this.persistWorkflowState(result, current.id, outputs);
       for (let index = 0; ; index += 1) {
         checkAbort(options.signal);
         checkWorkflowTimeout(this.workflowTimeoutMs, startedAtMs, options.signal);
@@ -103,6 +107,7 @@ export class WorkflowRuntime {
           };
           nodeRuns.push(run);
           active = run;
+          await this.persistNodeRun(result.id, run);
           const loopResult = await this.loop(
             current,
             variables,
@@ -120,6 +125,8 @@ export class WorkflowRuntime {
           run.status = loopResult.status;
           run.iteration = iterations[current.id] ?? run.iteration;
           run.finishedAt = new Date().toISOString();
+          await this.persistNodeRun(result.id, run);
+          await this.persistWorkflowState(result, current.id, outputs);
           active = undefined;
           if (loopResult.status === 'FAILED') {
             run.error = loopResult.error;
@@ -128,6 +135,8 @@ export class WorkflowRuntime {
             result.error = loopResult.error;
             result.errorCode = loopResult.errorCode;
             result.finishedAt = new Date().toISOString();
+            await this.persistNodeRun(result.id, run);
+            await this.persistWorkflowState(result, current.id, outputs);
             return result;
           }
           if (loopResult.lastOutput) lastOutput = loopResult.lastOutput;
@@ -144,6 +153,7 @@ export class WorkflowRuntime {
         };
         nodeRuns.push(run);
         active = run;
+        await this.persistNodeRun(result.id, run);
         if (current.type === 'start') {
           run.input = variables;
           run.attempts = 1;
@@ -181,14 +191,42 @@ export class WorkflowRuntime {
           run.attempts = 1;
         } else throw new WorkflowRuntimeError('暂不支持执行当前节点');
         run.finishedAt = new Date().toISOString();
+        await this.persistNodeRun(result.id, run);
+        await this.persistWorkflowState(result, current?.id, outputs);
         active = undefined;
       }
       result.status = 'SUCCESS';
       result.finishedAt = new Date().toISOString();
+      await this.persistWorkflowState(result, undefined, outputs);
       return result;
     } catch (error) {
-      return this.handleFail(error, active, result, options.signal);
+      const failed = this.handleFail(error, active, result, options.signal);
+      if (active) await this.persistNodeRun(result.id, active);
+      await this.persistWorkflowState(failed, current?.id, outputs);
+      return failed;
     }
+  }
+
+  private async persistWorkflowState(
+    result: WorkflowRunResult,
+    currentNode: string | undefined,
+    outputs: Record<string, JsonObject>,
+  ): Promise<void> {
+    if (!this.persistence) return;
+    await this.persistence.saveWorkflow(this.workflow);
+    await this.persistence.saveRun(result, currentNode, outputs);
+    await this.persistence.saveState({
+      runId: result.id,
+      workflowId: result.workflowId,
+      currentNode,
+      iteration: currentIteration(result),
+      variables: result.variables,
+      nodeOutputs: outputs,
+    });
+  }
+
+  private async persistNodeRun(runId: string, nodeRun: WorkflowNodeRun): Promise<void> {
+    if (this.persistence) await this.persistence.saveNodeRun(runId, nodeRun);
   }
 
   private async loop(
@@ -265,6 +303,7 @@ export class WorkflowRuntime {
             signal,
             minDeadline(loopDeadlineMs, workflowDeadlineMs),
             deadlineCode(loopDeadlineMs, workflowDeadlineMs),
+            runId,
           );
           lastOutput = body.lastOutput;
           iterationError = undefined;
@@ -340,6 +379,7 @@ export class WorkflowRuntime {
     signal: AbortSignal | undefined,
     deadlineMs: number | undefined,
     deadlineCode: string,
+    persistenceRunId: string,
   ): Promise<{ lastOutput: JsonObject | undefined }> {
     let current: WorkflowNode | undefined = start;
     let lastOutput: JsonObject | undefined;
@@ -361,6 +401,7 @@ export class WorkflowRuntime {
         iteration: iterations[loopId],
       };
       nodeRuns.push(run);
+      await this.persistNodeRun(persistenceRunId, run);
       try {
         if (current.type === 'agent') {
           const input = inputOf(current as AgentNode, variables, outputs);
@@ -392,6 +433,7 @@ export class WorkflowRuntime {
         } else throw new WorkflowRuntimeError('Loop body 不支持当前节点');
         run.status = 'SUCCESS';
         run.finishedAt = new Date().toISOString();
+        await this.persistNodeRun(persistenceRunId, run);
       } catch (error) {
         run.status = 'FAILED';
         run.error = error instanceof Error ? error.message : String(error);
@@ -539,6 +581,7 @@ export class WorkflowRuntime {
   ): Promise<void> {
     try {
       await this.checkpointStore.save(checkpoint);
+      if (this.persistence) await this.persistence.saveCheckpoint(checkpoint);
       target.push(checkpoint);
     } catch (error) {
       throw new WorkflowRuntimeError(
@@ -620,6 +663,10 @@ function checkWorkflowTimeout(
   checkAbort(signal);
   if (timeoutMs !== undefined && Date.now() - startedAtMs >= timeoutMs)
     throw new WorkflowRuntimeError('Workflow 执行超时', 'WORKFLOW_TIMEOUT');
+}
+function currentIteration(result: WorkflowRunResult): number | undefined {
+  const values = Object.values(result.iterations);
+  return values.length > 0 ? Math.max(...values) : undefined;
 }
 function clone(value: JsonObject): JsonObject {
   return JSON.parse(JSON.stringify(value)) as JsonObject;
