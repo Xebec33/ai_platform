@@ -114,7 +114,7 @@ export class PostgresPersistence implements WorkflowPersistence {
   async getRun(runId: string): Promise<WorkflowRunResult | undefined> {
     const runResult = await this.pool.query<RunRow>(
       `SELECT id, workflow_id, status, current_node, iteration, iterations, variables, node_outputs,
-              error, error_code, started_at, finished_at
+              output, error, error_code, started_at, finished_at
        FROM workflow_runs WHERE id = $1`,
       [runId],
     );
@@ -138,6 +138,7 @@ export class PostgresPersistence implements WorkflowPersistence {
       workflowId: row.workflow_id,
       status: row.status as WorkflowRunResult['status'],
       variables: row.variables,
+      output: row.output ?? undefined,
       nodeRuns: nodeResult.rows.map(toNodeRun),
       startedAt: row.started_at.toISOString(),
       finishedAt: row.finished_at?.toISOString(),
@@ -172,8 +173,8 @@ async function upsertRun(
 ): Promise<void> {
   await client.query(
     `INSERT INTO workflow_runs
-       (id, workflow_id, status, current_node, iteration, iterations, variables, node_outputs, error, error_code, started_at, finished_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
+       (id, workflow_id, status, current_node, iteration, iterations, variables, node_outputs, output, error, error_code, started_at, finished_at)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12, $13)
      ON CONFLICT (id) DO UPDATE SET
        status = EXCLUDED.status,
        current_node = EXCLUDED.current_node,
@@ -181,6 +182,7 @@ async function upsertRun(
        iterations = EXCLUDED.iterations,
        variables = EXCLUDED.variables,
        node_outputs = EXCLUDED.node_outputs,
+       output = EXCLUDED.output,
        error = EXCLUDED.error,
        error_code = EXCLUDED.error_code,
        finished_at = EXCLUDED.finished_at,
@@ -194,6 +196,7 @@ async function upsertRun(
       JSON.stringify(run.iterations),
       JSON.stringify(run.variables),
       JSON.stringify(nodeOutputs),
+      nullableJson(run.output),
       run.error ?? null,
       run.errorCode ?? null,
       run.startedAt,
@@ -234,6 +237,7 @@ interface RunRow extends QueryResultRow {
   iterations: Record<string, number>;
   variables: JsonObject;
   node_outputs: Record<string, JsonObject>;
+  output: JsonObject | null;
   error: string | null;
   error_code: string | null;
   started_at: Date;

@@ -180,6 +180,47 @@ describe('WorkflowRuntime', () => {
     ).toThrow(WorkflowValidationError);
   });
 
+  it('persists the final FAILED status of a Loop body node', async () => {
+    const nodeRuns: Array<{ runId: string; nodeId: string; status: string }> = [];
+    const persistence = {
+      saveWorkflow: async () => {},
+      saveRun: async () => {},
+      saveNodeRun: async (runId: string, nodeRun: { nodeId: string; status: string }) => {
+        nodeRuns.push({ runId, nodeId: nodeRun.nodeId, status: nodeRun.status });
+      },
+      saveState: async () => {},
+      saveCheckpoint: async () => {},
+    };
+    const result = await createWorkflowRuntime(loopWorkflow(1), {
+      persistence,
+      agentExecutor: async () => {
+        throw new Error('body failed');
+      },
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(
+      nodeRuns.filter((run) => run.nodeId === 'review-agent').map((run) => run.status),
+    ).toEqual(['RUNNING', 'FAILED']);
+  });
+
+  it('persists State after each successful Loop body node', async () => {
+    const states: Array<{ currentNode?: string; variables: Record<string, unknown> }> = [];
+    const result = await createWorkflowRuntime(loopWorkflow(1), {
+      persistence: {
+        saveWorkflow: async () => {},
+        saveRun: async () => {},
+        saveNodeRun: async () => {},
+        saveState: async (state) =>
+          states.push({ currentNode: state.currentNode, variables: state.variables }),
+        saveCheckpoint: async () => {},
+      },
+      agentExecutor: async () => ({ output: { passed: true } }),
+    }).run();
+    expect(result.status).toBe('SUCCESS');
+    expect(states.some((state) => state.currentNode === 'loop-1')).toBe(true);
+    expect(states.length).toBeGreaterThan(3);
+  });
+
   it('finalizes a failed Loop body node instead of leaving it RUNNING', async () => {
     const result = await createWorkflowRuntime(loopWorkflow(2), {
       agentExecutor: async () => {
@@ -242,6 +283,32 @@ describe('WorkflowRuntime', () => {
     expect(result.errorCode).toBe('NODE_TIMEOUT');
     expect(result.nodeRuns[1]).toMatchObject({ status: 'FAILED', errorCode: 'NODE_TIMEOUT' });
     expect(result.nodeRuns[1]?.finishedAt).toBeDefined();
+  });
+
+  it('keeps the original workflow failure when persistence also fails', async () => {
+    const result = await createWorkflowRuntime(workflow(), {
+      persistence: {
+        saveWorkflow: async () => {
+          throw new Error('database offline');
+        },
+        saveRun: async () => {
+          throw new Error('database offline');
+        },
+        saveNodeRun: async () => {
+          throw new Error('database offline');
+        },
+        saveState: async () => {
+          throw new Error('database offline');
+        },
+        saveCheckpoint: async () => {},
+      },
+      agentExecutor: async () => {
+        throw new Error('agent failed');
+      },
+    }).run();
+    expect(result.status).toBe('FAILED');
+    expect(result.error).toBe('agent failed');
+    expect(result.persistenceError).toContain('database offline');
   });
 
   it('fails the run when CheckpointStore cannot save', async () => {

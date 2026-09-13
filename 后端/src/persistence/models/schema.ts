@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   iterations JSONB NOT NULL DEFAULT '{}'::jsonb,
   variables JSONB NOT NULL,
   node_outputs JSONB NOT NULL DEFAULT '{}'::jsonb,
+  output JSONB,
   error TEXT,
   error_code TEXT,
   started_at TIMESTAMPTZ NOT NULL,
@@ -58,6 +59,8 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   iterations JSONB NOT NULL,
   created_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS output JSONB;
 
 CREATE INDEX IF NOT EXISTS workflow_runs_workflow_id_idx ON workflow_runs(workflow_id);
 CREATE INDEX IF NOT EXISTS node_runs_run_id_idx ON node_runs(run_id);

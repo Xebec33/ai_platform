@@ -107,7 +107,7 @@ export class WorkflowRuntime {
           };
           nodeRuns.push(run);
           active = run;
-          await this.persistNodeRun(result.id, run);
+          await this.persistNodeRun(result.id, run, result);
           const loopResult = await this.loop(
             current,
             variables,
@@ -120,12 +120,13 @@ export class WorkflowRuntime {
             startedAtMs,
             checkpoints,
             result.id,
+            result,
           );
           run.attempts = loopResult.attempts;
           run.status = loopResult.status;
           run.iteration = iterations[current.id] ?? run.iteration;
           run.finishedAt = new Date().toISOString();
-          await this.persistNodeRun(result.id, run);
+          await this.persistNodeRun(result.id, run, result);
           await this.persistWorkflowState(result, current.id, outputs);
           active = undefined;
           if (loopResult.status === 'FAILED') {
@@ -135,7 +136,7 @@ export class WorkflowRuntime {
             result.error = loopResult.error;
             result.errorCode = loopResult.errorCode;
             result.finishedAt = new Date().toISOString();
-            await this.persistNodeRun(result.id, run);
+            await this.persistNodeRun(result.id, run, result);
             await this.persistWorkflowState(result, current.id, outputs);
             return result;
           }
@@ -153,7 +154,7 @@ export class WorkflowRuntime {
         };
         nodeRuns.push(run);
         active = run;
-        await this.persistNodeRun(result.id, run);
+        await this.persistNodeRun(result.id, run, result);
         if (current.type === 'start') {
           run.input = variables;
           run.attempts = 1;
@@ -191,7 +192,7 @@ export class WorkflowRuntime {
           run.attempts = 1;
         } else throw new WorkflowRuntimeError('暂不支持执行当前节点');
         run.finishedAt = new Date().toISOString();
-        await this.persistNodeRun(result.id, run);
+        await this.persistNodeRun(result.id, run, result);
         await this.persistWorkflowState(result, current?.id, outputs);
         active = undefined;
       }
@@ -201,7 +202,7 @@ export class WorkflowRuntime {
       return result;
     } catch (error) {
       const failed = this.handleFail(error, active, result, options.signal);
-      if (active) await this.persistNodeRun(result.id, active);
+      if (active) await this.persistNodeRun(result.id, active, result);
       await this.persistWorkflowState(failed, current?.id, outputs);
       return failed;
     }
@@ -213,20 +214,40 @@ export class WorkflowRuntime {
     outputs: Record<string, JsonObject>,
   ): Promise<void> {
     if (!this.persistence) return;
-    await this.persistence.saveWorkflow(this.workflow);
-    await this.persistence.saveRun(result, currentNode, outputs);
-    await this.persistence.saveState({
-      runId: result.id,
-      workflowId: result.workflowId,
-      currentNode,
-      iteration: currentIteration(result),
-      variables: result.variables,
-      nodeOutputs: outputs,
-    });
+    try {
+      await this.persistence.saveWorkflow(this.workflow);
+      await this.persistence.saveRun(result, currentNode, outputs);
+      await this.persistence.saveState({
+        runId: result.id,
+        workflowId: result.workflowId,
+        currentNode,
+        iteration: currentIteration(result),
+        variables: result.variables,
+        nodeOutputs: outputs,
+      });
+    } catch (error) {
+      this.recordPersistenceError(result, error);
+    }
   }
 
-  private async persistNodeRun(runId: string, nodeRun: WorkflowNodeRun): Promise<void> {
-    if (this.persistence) await this.persistence.saveNodeRun(runId, nodeRun);
+  private async persistNodeRun(
+    runId: string,
+    nodeRun: WorkflowNodeRun,
+    result?: WorkflowRunResult,
+  ): Promise<void> {
+    if (!this.persistence) return;
+    try {
+      await this.persistence.saveNodeRun(runId, nodeRun);
+    } catch (error) {
+      if (result) this.recordPersistenceError(result, error);
+    }
+  }
+
+  private recordPersistenceError(result: WorkflowRunResult, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    result.persistenceError = result.persistenceError
+      ? result.persistenceError + '; ' + message
+      : message;
   }
 
   private async loop(
@@ -241,6 +262,7 @@ export class WorkflowRuntime {
     startedAtMs: number,
     checkpoints: WorkflowCheckpoint[],
     runId: string,
+    result: WorkflowRunResult,
   ): Promise<LoopStepResult> {
     const maxIterations = node.config.maxIterations;
     const stopCondition = node.config.stopCondition;
@@ -274,7 +296,7 @@ export class WorkflowRuntime {
       checkWorkflowTimeout(this.workflowTimeoutMs, startedAtMs, signal);
       iterations[node.id] = iteration;
       run.iteration = iteration;
-      await this.persistCheckpoint(checkpoints, {
+      await this.persistCheckpoint(result, checkpoints, {
         id: 'cp-' + runId + '-' + checkpointIndex + '-' + iteration,
         runId,
         workflowId: this.workflow.id,
@@ -304,6 +326,7 @@ export class WorkflowRuntime {
             minDeadline(loopDeadlineMs, workflowDeadlineMs),
             deadlineCode(loopDeadlineMs, workflowDeadlineMs),
             runId,
+            result,
           );
           lastOutput = body.lastOutput;
           iterationError = undefined;
@@ -345,7 +368,7 @@ export class WorkflowRuntime {
         };
       }
       if (decision.stop) {
-        await this.persistCheckpoint(checkpoints, {
+        await this.persistCheckpoint(result, checkpoints, {
           id: 'cp-' + runId + '-exit-' + iteration,
           runId,
           workflowId: this.workflow.id,
@@ -380,6 +403,7 @@ export class WorkflowRuntime {
     deadlineMs: number | undefined,
     deadlineCode: string,
     persistenceRunId: string,
+    result: WorkflowRunResult,
   ): Promise<{ lastOutput: JsonObject | undefined }> {
     let current: WorkflowNode | undefined = start;
     let lastOutput: JsonObject | undefined;
@@ -401,7 +425,7 @@ export class WorkflowRuntime {
         iteration: iterations[loopId],
       };
       nodeRuns.push(run);
-      await this.persistNodeRun(persistenceRunId, run);
+      await this.persistNodeRun(persistenceRunId, run, result);
       try {
         if (current.type === 'agent') {
           const input = inputOf(current as AgentNode, variables, outputs);
@@ -433,7 +457,8 @@ export class WorkflowRuntime {
         } else throw new WorkflowRuntimeError('Loop body 不支持当前节点');
         run.status = 'SUCCESS';
         run.finishedAt = new Date().toISOString();
-        await this.persistNodeRun(persistenceRunId, run);
+        await this.persistNodeRun(persistenceRunId, run, result);
+        await this.persistWorkflowState(result, current.id, outputs);
       } catch (error) {
         run.status = 'FAILED';
         run.error = error instanceof Error ? error.message : String(error);
@@ -444,6 +469,8 @@ export class WorkflowRuntime {
               ? error.code
               : undefined;
         run.finishedAt = new Date().toISOString();
+        await this.persistNodeRun(persistenceRunId, run, result);
+        await this.persistWorkflowState(result, current.id, outputs);
         throw error;
       }
       localIndex += 1;
@@ -576,19 +603,26 @@ export class WorkflowRuntime {
   }
 
   private async persistCheckpoint(
+    result: WorkflowRunResult,
     target: WorkflowCheckpoint[],
     checkpoint: WorkflowCheckpoint,
   ): Promise<void> {
     try {
       await this.checkpointStore.save(checkpoint);
-      if (this.persistence) await this.persistence.saveCheckpoint(checkpoint);
-      target.push(checkpoint);
     } catch (error) {
       throw new WorkflowRuntimeError(
         'Checkpoint 保存失败: ' + (error instanceof Error ? error.message : String(error)),
         'CHECKPOINT_ERROR',
       );
     }
+    if (this.persistence) {
+      try {
+        await this.persistence.saveCheckpoint(checkpoint);
+      } catch (error) {
+        this.recordPersistenceError(result, error);
+      }
+    }
+    target.push(checkpoint);
   }
 }
 

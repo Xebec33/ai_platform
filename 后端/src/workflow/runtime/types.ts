@@ -86,6 +86,7 @@ export interface WorkflowRunResult {
   finishedAt?: string;
   error?: string;
   errorCode?: string;
+  persistenceError?: string;
   iterations: Record<string, number>;
   checkpoints: WorkflowCheckpoint[];
 }

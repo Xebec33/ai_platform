@@ -42,6 +42,10 @@ describe('PostgresPersistence', () => {
     expect(pool.connect).toHaveBeenCalledOnce();
     expect(client.query).toHaveBeenCalledWith('BEGIN');
     expect(client.query).toHaveBeenCalledWith('COMMIT');
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('workflow_runs'),
+      expect.arrayContaining([JSON.stringify({ 'agent-1': { answer: 'ok' } })]),
+    );
     expect(query).not.toHaveBeenCalledWith('ROLLBACK');
   });
 

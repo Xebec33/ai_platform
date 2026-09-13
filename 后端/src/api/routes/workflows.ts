@@ -1,4 +1,8 @@
-import type { JsonObject, WorkflowDefinition } from '@ai-workflow/shared-types';
+import {
+  validateWorkflow,
+  type JsonObject,
+  type WorkflowDefinition,
+} from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
 import {
   createWorkflowRuntime,
@@ -22,9 +26,19 @@ export async function registerWorkflowRoutes(
 ): Promise<void> {
   app.post<{ Body: WorkflowBody }>('/workflows', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
+    const validation = validateWorkflow(request.body.workflow);
+    if (!validation.valid)
+      return reply.code(400).send({ error: 'Workflow 校验失败', issues: validation.issues });
     if (!options.persistence?.saveWorkflow) return reply.code(503).send({ error: '持久化未配置' });
-    await options.persistence.saveWorkflow(request.body.workflow);
-    return reply.code(201).send({ workflowId: request.body.workflow.id });
+    try {
+      await options.persistence.saveWorkflow(request.body.workflow);
+      return reply.code(201).send({ workflowId: request.body.workflow.id });
+    } catch (error) {
+      return reply.code(503).send({
+        error: 'Workflow 持久化失败',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.get<{ Params: { workflowId: string } }>('/workflows/:workflowId', async (request, reply) => {
