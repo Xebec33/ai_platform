@@ -70,6 +70,7 @@ export interface WorkflowPersistence {
   ): void | Promise<void>;
   saveNodeRun(runId: string, nodeRun: WorkflowNodeRun): void | Promise<void>;
   saveState(state: WorkflowPersistenceState): void | Promise<void>;
+  listRuns?(limit?: number): Promise<WorkflowRunResult[]>;
   saveCheckpoint(checkpoint: WorkflowCheckpoint): void | Promise<void>;
   getWorkflow?(workflowId: string): Promise<WorkflowDefinition | undefined>;
   getRun?(runId: string): Promise<WorkflowRunResult | undefined>;
@@ -91,7 +92,11 @@ export interface WorkflowRunResult {
   checkpoints: WorkflowCheckpoint[];
 }
 
+export type { RunMonitor } from '../../runs/run-monitor.js';
+
 export interface WorkflowRuntimeOptions {
+  eventSink?: import('./events.js').WorkflowEventSink;
+  runMonitor?: import('../../runs/run-monitor.js').RunMonitor;
   agentExecutor?: AgentExecutorLike;
   agentTimeoutMs?: number;
   maxAgentRetries?: number;

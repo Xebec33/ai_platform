@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   createWorkflowRuntime,
   WorkflowValidationError,
+  type RunMonitor,
   type WorkflowPersistence,
   type WorkflowRuntimeOptions,
 } from '../../workflow/runtime/index.js';
@@ -22,7 +23,7 @@ interface WorkflowBody {
 
 export async function registerWorkflowRoutes(
   app: FastifyInstance,
-  options: { persistence?: WorkflowPersistence } = {},
+  options: { persistence?: WorkflowPersistence; monitor?: RunMonitor } = {},
 ): Promise<void> {
   app.post<{ Body: WorkflowBody }>('/workflows', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
@@ -47,18 +48,13 @@ export async function registerWorkflowRoutes(
     return reply.send(workflow);
   });
 
-  app.get<{ Params: { runId: string } }>('/runs/:runId', async (request, reply) => {
-    const run = await options.persistence?.getRun?.(request.params.runId);
-    if (!run) return reply.code(404).send({ error: 'Run 不存在' });
-    return reply.send(run);
-  });
-
   app.post<{ Body: RunBody }>('/workflows/run', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
     try {
       const runtimeOptions: WorkflowRuntimeOptions = {
         maxAgentRetries: 0,
         persistence: options.persistence,
+        runMonitor: options.monitor,
       };
       const result = await createWorkflowRuntime(request.body.workflow, runtimeOptions).execute({
         variables: request.body.variables,

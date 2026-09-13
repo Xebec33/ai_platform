@@ -21,8 +21,14 @@ import {
   type CheckpointStore,
   type WorkflowPersistence,
 } from './types.js';
+import {
+  type WorkflowEventSink,
+  type WorkflowEventType,
+  type WorkflowRunEvent,
+} from './events.js';
 import { AgentExecutionError, createDefaultAgentExecutor } from '../../agents/index.js';
 import { evaluateLoopStopCondition, classifyLoopEdges } from './loop.js';
+import type { RunMonitor } from '../../runs/run-monitor.js';
 const defaultAgentExecutor = createDefaultAgentExecutor();
 
 class NoOpCheckpointStore implements CheckpointStore {
@@ -38,6 +44,8 @@ export class WorkflowRuntime {
   private readonly checkpointStore: CheckpointStore;
   private readonly workflowTimeoutMs?: number;
   private readonly persistence?: WorkflowPersistence;
+  private readonly eventSink?: WorkflowEventSink;
+  private readonly runMonitor?: RunMonitor;
 
   constructor(
     private readonly workflow: WorkflowDefinition,
@@ -63,6 +71,8 @@ export class WorkflowRuntime {
     this.checkpointStore = options.checkpointStore ?? new NoOpCheckpointStore();
     this.workflowTimeoutMs = options.workflowTimeoutMs;
     this.persistence = options.persistence;
+    this.eventSink = options.eventSink;
+    this.runMonitor = options.runMonitor;
   }
 
   run(options: WorkflowRunOptions = {}): Promise<WorkflowRunResult> {
@@ -91,8 +101,10 @@ export class WorkflowRuntime {
     let current = this.start();
     let lastOutput: JsonObject | undefined;
     let active: WorkflowNodeRun | undefined;
+    this.runMonitor?.register(result);
     try {
       await this.persistWorkflowState(result, current.id, outputs);
+      this.emitEvent(result, 'RUN_STARTED', { currentNode: current.id });
       for (let index = 0; ; index += 1) {
         checkAbort(options.signal);
         checkWorkflowTimeout(this.workflowTimeoutMs, startedAtMs, options.signal);
@@ -107,6 +119,8 @@ export class WorkflowRuntime {
           };
           nodeRuns.push(run);
           active = run;
+          this.emitEvent(result, 'NODE_STARTED', { nodeId: run.nodeId, nodeRun: { ...run } });
+          this.emitEvent(result, 'LOOP_STARTED', { nodeId: run.nodeId, currentNode: run.nodeId });
           await this.persistNodeRun(result.id, run, result);
           const loopResult = await this.loop(
             current,
@@ -128,6 +142,16 @@ export class WorkflowRuntime {
           run.finishedAt = new Date().toISOString();
           await this.persistNodeRun(result.id, run, result);
           await this.persistWorkflowState(result, current.id, outputs);
+          this.emitEvent(result, loopResult.status === 'SUCCESS' ? 'NODE_COMPLETED' : 'NODE_FAILED', {
+            nodeId: run.nodeId,
+            nodeRun: { ...run },
+            currentNode: run.nodeId,
+            iteration: run.iteration,
+          });
+          this.emitEvent(result, loopResult.status === 'SUCCESS' ? 'LOOP_STOPPED' : 'LOOP_CONTINUED', {
+            nodeId: run.nodeId,
+            iteration: run.iteration,
+          });
           active = undefined;
           if (loopResult.status === 'FAILED') {
             run.error = loopResult.error;
@@ -154,6 +178,7 @@ export class WorkflowRuntime {
         };
         nodeRuns.push(run);
         active = run;
+        this.emitEvent(result, 'NODE_STARTED', { nodeId: run.nodeId, nodeRun: { ...run } });
         await this.persistNodeRun(result.id, run, result);
         if (current.type === 'start') {
           run.input = variables;
@@ -194,18 +219,50 @@ export class WorkflowRuntime {
         run.finishedAt = new Date().toISOString();
         await this.persistNodeRun(result.id, run, result);
         await this.persistWorkflowState(result, current?.id, outputs);
+        this.emitEvent(result, run.status === 'SUCCESS' ? 'NODE_COMPLETED' : 'NODE_FAILED', {
+          nodeId: run.nodeId,
+          nodeRun: { ...run },
+          currentNode: current?.id,
+        });
         active = undefined;
       }
       result.status = 'SUCCESS';
       result.finishedAt = new Date().toISOString();
       await this.persistWorkflowState(result, undefined, outputs);
+      this.emitEvent(result, 'RUN_COMPLETED', { status: result.status, output: result.output });
+      this.runMonitor?.update(result);
       return result;
     } catch (error) {
       const failed = this.handleFail(error, active, result, options.signal);
       if (active) await this.persistNodeRun(result.id, active, result);
       await this.persistWorkflowState(failed, current?.id, outputs);
+      this.emitEvent(failed, failed.status === 'CANCELLED' ? 'RUN_CANCELLED' : 'RUN_FAILED', {
+        status: failed.status,
+        currentNode: current?.id,
+        error: failed.error,
+        errorCode: failed.errorCode,
+      });
+      this.runMonitor?.update(failed);
       return failed;
     }
+  }
+
+  private emitEvent(
+    result: WorkflowRunResult,
+    type: WorkflowEventType,
+    payload: Omit<WorkflowRunEvent, 'id' | 'type' | 'runId' | 'workflowId' | 'timestamp'> = {},
+  ): void {
+    const event: WorkflowRunEvent = {
+      id: `${result.id}-${type}-${result.nodeRuns.length}-${Date.now()}`,
+      type,
+      runId: result.id,
+      workflowId: result.workflowId,
+      timestamp: new Date().toISOString(),
+      status: result.status,
+      ...payload,
+    };
+    this.eventSink?.emit(event);
+    this.runMonitor?.events.emit(event);
   }
 
   private async persistWorkflowState(
@@ -459,6 +516,11 @@ export class WorkflowRuntime {
         run.finishedAt = new Date().toISOString();
         await this.persistNodeRun(persistenceRunId, run, result);
         await this.persistWorkflowState(result, current.id, outputs);
+        this.emitEvent(result, 'NODE_COMPLETED', {
+          nodeId: run.nodeId,
+          nodeRun: { ...run },
+          currentNode: current.id,
+        });
       } catch (error) {
         run.status = 'FAILED';
         run.error = error instanceof Error ? error.message : String(error);
@@ -471,6 +533,13 @@ export class WorkflowRuntime {
         run.finishedAt = new Date().toISOString();
         await this.persistNodeRun(persistenceRunId, run, result);
         await this.persistWorkflowState(result, current.id, outputs);
+        this.emitEvent(result, 'NODE_FAILED', {
+          nodeId: run.nodeId,
+          nodeRun: { ...run },
+          currentNode: current.id,
+          error: run.error,
+          errorCode: run.errorCode,
+        });
         throw error;
       }
       localIndex += 1;

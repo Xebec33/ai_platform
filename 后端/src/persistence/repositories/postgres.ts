@@ -111,6 +111,15 @@ export class PostgresPersistence implements WorkflowPersistence {
     return result.rows[0]?.definition;
   }
 
+  async listRuns(limit = 50): Promise<WorkflowRunResult[]> {
+    const result = await this.pool.query<{ id: string }>(
+      'SELECT id FROM workflow_runs ORDER BY started_at DESC LIMIT $1',
+      [Math.max(1, Math.min(limit, 200))],
+    );
+    const runs = await Promise.all(result.rows.map((row) => this.getRun(row.id)));
+    return runs.filter((run): run is WorkflowRunResult => Boolean(run));
+  }
+
   async getRun(runId: string): Promise<WorkflowRunResult | undefined> {
     const runResult = await this.pool.query<RunRow>(
       `SELECT id, workflow_id, status, current_node, iteration, iterations, variables, node_outputs,
