@@ -27,6 +27,7 @@ export interface ModelRequest {
   input: JsonValue;
   temperature?: number;
   maxTokens?: number;
+  mockRole?: string;
   tools?: ReadonlyArray<ModelToolDefinition>;
   toolResults?: ReadonlyArray<ModelToolResult>;
   signal?: AbortSignal;
@@ -106,5 +107,29 @@ export function createDefaultModelProviderRegistry(): ModelProviderRegistry {
 
 function defaultMockHandler(request: ModelRequest): ModelResponse {
   const input = typeof request.input === 'string' ? request.input : JSON.stringify(request.input);
+  const role = request.mockRole;
+  if (role === 'requirement')
+    return { content: JSON.stringify({ requirement: input, acceptanceCriteria: ['测试首次失败', '修复后通过'] }) };
+  if (role === 'plan')
+    return { content: JSON.stringify({ tasks: ['frontend', 'backend', 'test', 'review'] }) };
+  if (role === 'frontend') return { content: JSON.stringify({ completed: true, area: 'frontend' }) };
+  if (role === 'backend') return { content: JSON.stringify({ completed: true, area: 'backend' }) };
+  if (role === 'test') {
+    const previousFix = typeof request.input === 'object' && request.input !== null && !Array.isArray(request.input)
+      ? request.input.fixed
+      : undefined;
+    return {
+      content: JSON.stringify({ passed: previousFix === true, attempt: previousFix === true ? 2 : 1 }),
+    };
+  }
+  if (role === 'review') {
+    const test = request.input;
+    return {
+      content: JSON.stringify({
+        passed: typeof test === 'object' && test !== null && !Array.isArray(test) && test.passed === true,
+      }),
+    };
+  }
+  if (role === 'fix') return { content: JSON.stringify({ fixed: true, passed: true }) };
   return { content: `Mock response: ${input}` };
 }

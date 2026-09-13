@@ -5,6 +5,7 @@ import {
 } from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
 import type { ToolRegistry } from '../../tools/index.js';
+import { createMockSelfDevelopmentWorkflow } from '../../self-development/index.js';
 import type { JobQueue } from '../../queue/jobs/types.js';
 import {
   createWorkflowRuntime,
@@ -36,6 +37,10 @@ export async function registerWorkflowRoutes(
     jobTimeoutMs?: number;
   } = {},
 ): Promise<void> {
+  app.get('/workflows/mock-self-development', async (_request, reply) => {
+    return reply.send(createMockSelfDevelopmentWorkflow());
+  });
+
   app.post<{ Body: WorkflowBody }>('/workflows', async (request, reply) => {
     if (!request.body?.workflow) return reply.code(400).send({ error: 'workflow 不能为空' });
     const validation = validateWorkflow(request.body.workflow);

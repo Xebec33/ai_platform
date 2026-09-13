@@ -23,6 +23,16 @@ describe('POST /workflows/run', () => {
     expect(response.json()).toMatchObject({ workflowId: 'api-demo', status: 'SUCCESS' });
   });
 
+  it('returns the mock self-development workflow definition', async () => {
+    app = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/workflows/mock-self-development' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      id: 'self-development-mock-v1',
+      name: 'Mock 自举 Workflow',
+    });
+  });
+
   it('rejects an invalid workflow before persistence', async () => {
     const saveWorkflow = vi.fn();
     app = await createApp({

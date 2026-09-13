@@ -8,6 +8,7 @@ export interface AgentConfig {
   model: string;
   provider?: string;
   systemPrompt: string;
+  mockRole?: string;
   inputMapping?: JsonObject;
   outputSchema?: JsonObject;
   temperature?: number;
@@ -78,6 +79,7 @@ export function agentConfigFromNode(node: AgentNode): AgentConfig {
     model: node.config.model,
     provider: asString(node.config.provider),
     systemPrompt: node.config.systemPrompt,
+    mockRole: asString(node.config.mockRole),
     inputMapping: node.input,
     outputSchema: asObject(node.config.outputSchema),
     temperature: asNumber(node.config.temperature),
