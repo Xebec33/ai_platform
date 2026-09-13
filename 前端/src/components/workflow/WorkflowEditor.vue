@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { ConnectionMode, VueFlow, type Connection, type NodeMouseEvent } from '@vue-flow/core';
+import { uiGraphToWorkflow } from '@ai-workflow/shared-types';
 import WorkflowNode from '../nodes/WorkflowNode.vue';
 import { serializeWorkflowGraph, type WorkflowNodeType } from '../../editor/workflow-graph';
+import { runWorkflow } from '../../api/workflows';
 import { useWorkflowEditorStore } from '../../stores/workflow-editor';
 
+const emit = defineEmits<{ runStarted: [runId: string] }>();
 const store = useWorkflowEditorStore();
+const running = ref(false);
 const jsonText = ref('');
 const showJson = ref(false);
 const nodeTypes = {
@@ -41,6 +45,27 @@ function importJson(): void {
 function updateNumber(key: string, event: Event): void {
   store.updateSelectedConfig(key, Number((event.target as HTMLInputElement).value));
 }
+async function runCurrentWorkflow(): Promise<void> {
+  store.error = '';
+  if (!store.validation.valid) {
+    store.error = store.validation.issues.map((issue) => issue.message).join('；');
+    return;
+  }
+  running.value = true;
+  try {
+    const workflow = uiGraphToWorkflow(store.graph, {
+      id: store.workflowId,
+      name: store.workflowName,
+    });
+    const result = await runWorkflow(workflow);
+    store.message = 'Workflow 已启动：' + result.id;
+    emit('runStarted', result.id);
+  } catch (cause) {
+    store.error = cause instanceof Error ? cause.message : '启动 Workflow 失败';
+  } finally {
+    running.value = false;
+  }
+}
 </script>
 
 <template>
@@ -57,6 +82,13 @@ function updateNumber(key: string, event: Event): void {
           class="workflow-name-input"
           aria-label="Workflow 名称"
         /><button type="button" class="button button--primary" @click="store.save">保存</button
+        ><button
+          type="button"
+          class="button button--run"
+          :disabled="running"
+          @click="runCurrentWorkflow"
+        >
+          {{ running ? '运行中...' : '运行' }}</button
         ><button type="button" class="button" @click="store.load">加载</button
         ><button type="button" class="button" @click="exportJson">JSON</button>
       </div>

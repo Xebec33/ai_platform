@@ -1,12 +1,6 @@
 import type { JsonObject } from '@ai-workflow/shared-types';
 
-export type RunStatus =
-  | 'PENDING'
-  | 'RUNNING'
-  | 'PAUSED'
-  | 'SUCCESS'
-  | 'FAILED'
-  | 'CANCELLED';
+export type RunStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
 
 export type NodeRunStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
 
@@ -49,6 +43,7 @@ export interface WorkflowRunEvent {
   status?: RunStatus;
   currentNode?: string;
   iteration?: number;
+  totalIterations?: number;
   output?: JsonObject;
   error?: string;
   errorCode?: string;

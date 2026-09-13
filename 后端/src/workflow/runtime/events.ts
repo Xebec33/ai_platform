@@ -25,6 +25,7 @@ export interface WorkflowRunEvent {
   status?: RunStatus;
   currentNode?: string;
   iteration?: number;
+  totalIterations?: number;
   output?: JsonObject;
   error?: string;
   errorCode?: string;

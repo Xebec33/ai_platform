@@ -17,9 +17,7 @@ const duration = (startedAt: string, finishedAt?: string): string => {
 
 const sortedNodeRuns = computed(() => {
   if (!store.currentRun) return [];
-  return [...store.currentRun.nodeRuns].sort((a, b) =>
-    a.startedAt.localeCompare(b.startedAt),
-  );
+  return [...store.currentRun.nodeRuns].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 });
 
 const eventLabel: Record<string, string> = {
@@ -61,7 +59,9 @@ onUnmounted(() => store.clearSelection());
 
     <div class="monitor-content">
       <aside class="run-list-panel">
-        <div class="panel-heading"><span>Run 列表</span><small>{{ store.runs.length }} 条</small></div>
+        <div class="panel-heading">
+          <span>Run 列表</span><small>{{ store.runs.length }} 条</small>
+        </div>
         <div v-if="store.runs.length === 0" class="empty-state">暂无运行记录</div>
         <button
           v-for="run in store.runs"
@@ -114,12 +114,22 @@ onUnmounted(() => store.clearSelection());
           <div v-if="sortedNodeRuns.length === 0" class="empty-state">暂无节点执行记录</div>
           <div v-for="nodeRun in sortedNodeRuns" :key="nodeRun.id" class="node-run-row">
             <span class="node-run__icon" :class="statusClass(nodeRun.status)">
-              {{ nodeRun.status === 'SUCCESS' ? '✓' : nodeRun.status === 'FAILED' ? '✗' : nodeRun.status === 'RUNNING' ? '●' : '○' }}
+              {{
+                nodeRun.status === 'SUCCESS'
+                  ? '✓'
+                  : nodeRun.status === 'FAILED'
+                    ? '✗'
+                    : nodeRun.status === 'RUNNING'
+                      ? '●'
+                      : '○'
+              }}
             </span>
             <div class="node-run__body">
               <div class="node-run__header">
                 <strong>{{ nodeRun.nodeId }}</strong>
-                <span class="node-run__status" :class="statusClass(nodeRun.status)">{{ nodeRun.status }}</span>
+                <span class="node-run__status" :class="statusClass(nodeRun.status)">{{
+                  nodeRun.status
+                }}</span>
                 <small v-if="nodeRun.iteration !== undefined" class="node-run__iteration">
                   迭代 {{ nodeRun.iteration }}
                 </small>

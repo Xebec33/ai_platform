@@ -126,6 +126,26 @@ describe('WorkflowRuntime', () => {
     expect(result.output).toEqual({ passed: true });
   });
 
+  it('emits LOOP_ITERATION events with progress metadata', async () => {
+    const events: Array<{ type: string; iteration?: number; totalIterations?: number }> = [];
+    const result = await createWorkflowRuntime(loopWorkflow(2), {
+      eventSink: {
+        emit: (event) => events.push(event),
+      },
+      agentExecutor: async ({ node }) => ({
+        output: {
+          passed: node.id === 'review-agent' && events.some((event) => event.iteration === 2),
+        },
+      }),
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(events.filter((event) => event.type === 'LOOP_ITERATION')).toEqual([
+      expect.objectContaining({ iteration: 1, totalIterations: 2 }),
+      expect.objectContaining({ iteration: 2, totalIterations: 2 }),
+    ]);
+  });
+
   it('fails a Loop after maxIterations without executing another iteration', async () => {
     const definition = loopWorkflow(3);
     let calls = 0;

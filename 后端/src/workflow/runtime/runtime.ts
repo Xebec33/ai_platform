@@ -21,11 +21,7 @@ import {
   type CheckpointStore,
   type WorkflowPersistence,
 } from './types.js';
-import {
-  type WorkflowEventSink,
-  type WorkflowEventType,
-  type WorkflowRunEvent,
-} from './events.js';
+import { type WorkflowEventSink, type WorkflowEventType, type WorkflowRunEvent } from './events.js';
 import { AgentExecutionError, createDefaultAgentExecutor } from '../../agents/index.js';
 import { evaluateLoopStopCondition, classifyLoopEdges } from './loop.js';
 import type { RunMonitor } from '../../runs/run-monitor.js';
@@ -142,16 +138,24 @@ export class WorkflowRuntime {
           run.finishedAt = new Date().toISOString();
           await this.persistNodeRun(result.id, run, result);
           await this.persistWorkflowState(result, current.id, outputs);
-          this.emitEvent(result, loopResult.status === 'SUCCESS' ? 'NODE_COMPLETED' : 'NODE_FAILED', {
-            nodeId: run.nodeId,
-            nodeRun: { ...run },
-            currentNode: run.nodeId,
-            iteration: run.iteration,
-          });
-          this.emitEvent(result, loopResult.status === 'SUCCESS' ? 'LOOP_STOPPED' : 'LOOP_CONTINUED', {
-            nodeId: run.nodeId,
-            iteration: run.iteration,
-          });
+          this.emitEvent(
+            result,
+            loopResult.status === 'SUCCESS' ? 'NODE_COMPLETED' : 'NODE_FAILED',
+            {
+              nodeId: run.nodeId,
+              nodeRun: { ...run },
+              currentNode: run.nodeId,
+              iteration: run.iteration,
+            },
+          );
+          this.emitEvent(
+            result,
+            loopResult.status === 'SUCCESS' ? 'LOOP_STOPPED' : 'LOOP_CONTINUED',
+            {
+              nodeId: run.nodeId,
+              iteration: run.iteration,
+            },
+          );
           active = undefined;
           if (loopResult.status === 'FAILED') {
             run.error = loopResult.error;
@@ -353,6 +357,12 @@ export class WorkflowRuntime {
       checkWorkflowTimeout(this.workflowTimeoutMs, startedAtMs, signal);
       iterations[node.id] = iteration;
       run.iteration = iteration;
+      this.emitEvent(result, 'LOOP_ITERATION', {
+        nodeId: node.id,
+        iteration,
+        totalIterations: maxIterations,
+        currentNode: node.id,
+      });
       await this.persistCheckpoint(result, checkpoints, {
         id: 'cp-' + runId + '-' + checkpointIndex + '-' + iteration,
         runId,

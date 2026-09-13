@@ -55,8 +55,7 @@ describe('RunEventBus', () => {
 
   it('caps history at 200 events', () => {
     const bus = new RunEventBus();
-    for (let i = 0; i < 210; i += 1)
-      bus.emit({ ...makeEvent('run-1', 'NODE_STARTED'), id: '' });
+    for (let i = 0; i < 210; i += 1) bus.emit({ ...makeEvent('run-1', 'NODE_STARTED'), id: '' });
     expect(bus.history('run-1')).toHaveLength(200);
   });
 

@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createWorkflowDefinition } from '@ai-workflow/shared-types';
+import {
+  createPostgresPersistenceFromEnv,
+  createPostgresPoolConfigFromEnv,
+} from '../../../src/config/persistence.js';
 import { PostgresPersistence } from '../../../src/persistence/index.js';
 
 function fakePool() {
@@ -12,6 +16,48 @@ function fakePool() {
 }
 
 describe('PostgresPersistence', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('creates a production-ready pool config from environment variables', () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://db-user:secret@db.example.com:5432/workflows');
+    vi.stubEnv('DATABASE_SSL', 'true');
+    vi.stubEnv('DATABASE_SSL_REJECT_UNAUTHORIZED', 'true');
+    vi.stubEnv('DATABASE_SSL_CA', 'line-1\\nline-2');
+    vi.stubEnv('DATABASE_POOL_MAX', '20');
+    vi.stubEnv('DATABASE_IDLE_TIMEOUT_MS', '45000');
+    vi.stubEnv('DATABASE_CONNECTION_TIMEOUT_MS', '12000');
+    vi.stubEnv('DATABASE_STATEMENT_TIMEOUT_MS', '60000');
+    vi.stubEnv('DATABASE_APPLICATION_NAME', 'workflow-api');
+
+    expect(createPostgresPoolConfigFromEnv()).toEqual({
+      connectionString: 'postgresql://db-user:secret@db.example.com:5432/workflows',
+      max: 20,
+      idleTimeoutMillis: 45000,
+      connectionTimeoutMillis: 12000,
+      statement_timeout: 60000,
+      application_name: 'workflow-api',
+      ssl: {
+        rejectUnauthorized: true,
+        ca: 'line-1\nline-2',
+      },
+    });
+  });
+
+  it('does not require a database in non-production environments', () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    vi.stubEnv('DATABASE_URL', '');
+    expect(createPostgresPoolConfigFromEnv()).toBeUndefined();
+    expect(createPostgresPersistenceFromEnv()).toBeUndefined();
+  });
+
+  it('fails fast when production has no database URL', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('DATABASE_URL', '');
+    expect(() => createPostgresPersistenceFromEnv()).toThrow('生产环境必须配置 DATABASE_URL');
+  });
+
   it('creates the Phase 6 schema through migration', async () => {
     const { pool, query } = fakePool();
     await new PostgresPersistence(pool).migrate();

@@ -47,6 +47,23 @@ describe('GET /runs', () => {
     expect(runs.map((r: { id: string }) => r.id)).toContain('run-1');
     expect(runs.map((r: { id: string }) => r.id)).toContain('run-2');
   });
+
+  it('merges persisted runs with active in-memory runs', async () => {
+    const persisted = makeRun('persisted-run');
+    const persistence = {
+      listRuns: async () => [persisted],
+      getRun: async () => undefined,
+    };
+    await app.close();
+    app = await createApp({ monitor, persistence, logger: false });
+    monitor.register(makeRun('active-run'));
+
+    const response = await app.inject({ method: 'GET', url: '/runs' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().map((run: { id: string }) => run.id)).toEqual(
+      expect.arrayContaining(['persisted-run', 'active-run']),
+    );
+  });
 });
 
 describe('GET /runs/:runId', () => {
@@ -77,22 +94,10 @@ describe('GET /runs/:runId', () => {
 
 describe('GET /runs/:runId/events (SSE)', () => {
   it('returns 503 when monitor is not configured', async () => {
-    const appNoMonitor = await createApp({ logger: false, monitor: undefined as unknown as InMemoryRunMonitor });
-    // createApp always creates a monitor, so test 503 by checking SSE with a monitorless route registration
-    await appNoMonitor.close();
-    // Verify that the SSE endpoint exists and monitor-based delivery works
-    const monitor = new InMemoryRunMonitor();
-    monitor.register(makeRun('run-1'));
-    const received: string[] = [];
-    monitor.subscribe('run-1', (event) => received.push(event.type));
-    monitor.events.emit({
-      id: 'e1',
-      type: 'RUN_STARTED',
-      runId: 'run-1',
-      workflowId: 'wf-1',
-      timestamp: new Date().toISOString(),
-    });
-    expect(received).toEqual(['RUN_STARTED']);
+    const app = await createApp({ logger: false, monitor: null });
+    const response = await app.inject({ method: 'GET', url: '/runs/run-1/events' });
+    await app.close();
+    expect(response.statusCode).toBe(503);
   });
 
   it('monitor delivers subscribed events for SSE streaming', () => {

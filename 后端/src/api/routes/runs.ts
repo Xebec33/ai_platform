@@ -13,9 +13,15 @@ export async function registerRunRoutes(
   options: RunRoutesOptions = {},
 ): Promise<void> {
   app.get('/runs', async (_request, reply) => {
-    if (options.monitor) return reply.send(options.monitor.list());
-    const runs = (await options.persistence?.listRuns?.(50)) ?? [];
-    return reply.send(runs);
+    const persisted = (await options.persistence?.listRuns?.(50)) ?? [];
+    const inMemory = options.monitor?.list() ?? [];
+    const merged = new Map(persisted.map((run) => [run.id, run]));
+    for (const run of inMemory) merged.set(run.id, run);
+    return reply.send(
+      [...merged.values()]
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .slice(0, 50),
+    );
   });
 
   app.get<{ Params: { runId: string } }>('/runs/:runId', async (request, reply) => {

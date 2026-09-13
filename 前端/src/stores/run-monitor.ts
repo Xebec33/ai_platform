@@ -8,6 +8,39 @@ import {
   type WorkflowRunEvent,
 } from '../api/runs';
 
+export function applyRunEvent(run: WorkflowRun, event: WorkflowRunEvent): WorkflowRun {
+  const nodeRuns = [...run.nodeRuns];
+  if (event.nodeRun) {
+    const index = nodeRuns.findIndex((item) => item.id === event.nodeRun?.id);
+    const existing = index >= 0 ? nodeRuns[index] : undefined;
+    if (existing && index >= 0) nodeRuns[index] = { ...existing, ...event.nodeRun };
+    else nodeRuns.push({ ...event.nodeRun });
+  } else if (event.nodeId && event.type === 'LOOP_ITERATION') {
+    for (let index = 0; index < nodeRuns.length; index += 1) {
+      const existing = nodeRuns[index];
+      if (existing?.nodeId === event.nodeId)
+        nodeRuns[index] = { ...existing, iteration: event.iteration };
+    }
+  }
+
+  return {
+    ...run,
+    ...(event.status ? { status: event.status } : {}),
+    ...(event.output ? { output: event.output } : {}),
+    ...(event.error ? { error: event.error, errorCode: event.errorCode } : {}),
+    nodeRuns,
+    iterations:
+      event.nodeId && event.iteration !== undefined
+        ? { ...run.iterations, [event.nodeId]: event.iteration }
+        : run.iterations,
+    ...(event.type === 'RUN_COMPLETED' ||
+    event.type === 'RUN_FAILED' ||
+    event.type === 'RUN_CANCELLED'
+      ? { finishedAt: event.timestamp }
+      : {}),
+  };
+}
+
 export const useRunMonitorStore = defineStore('run-monitor', () => {
   const runs = ref<WorkflowRun[]>([]);
   const currentRun = ref<WorkflowRun | null>(null);
@@ -45,13 +78,16 @@ export const useRunMonitorStore = defineStore('run-monitor', () => {
 
   function handleEvent(event: WorkflowRunEvent): void {
     events.value.push(event);
-    if (event.status && currentRun.value) {
-      currentRun.value = { ...currentRun.value, status: event.status };
-    }
-    if (event.currentNode && currentRun.value) {
-      currentRun.value = { ...currentRun.value };
-    }
-    if (event.type === 'RUN_COMPLETED' || event.type === 'RUN_FAILED' || event.type === 'RUN_CANCELLED') {
+    if (!currentRun.value) return;
+
+    currentRun.value = applyRunEvent(currentRun.value, event);
+    const matchingRun = runs.value.find((run) => run.id === currentRun.value?.id);
+    if (matchingRun) Object.assign(matchingRun, currentRun.value);
+    if (
+      event.type === 'RUN_COMPLETED' ||
+      event.type === 'RUN_FAILED' ||
+      event.type === 'RUN_CANCELLED'
+    ) {
       if (eventSource) {
         eventSource.close();
         eventSource = null;

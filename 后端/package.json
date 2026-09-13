@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --env-file=.env ../node_modules/tsx/dist/cli.mjs watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node --env-file=.env dist/server.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings=0",
-    "test": "vitest run"
+    "test": "NODE_ENV=test node --env-file=.env ../node_modules/vitest/vitest.mjs run"
   },
   "dependencies": {
     "@ai-workflow/shared-types": "*",

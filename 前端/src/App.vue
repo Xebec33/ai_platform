@@ -9,6 +9,7 @@ const health = ref<HealthResponse | null>(null);
 const loading = ref(true);
 const error = ref('');
 const view = ref<'home' | 'editor' | 'monitor'>('home');
+
 async function refreshHealth(): Promise<void> {
   loading.value = true;
   error.value = '';
@@ -20,13 +21,39 @@ async function refreshHealth(): Promise<void> {
     loading.value = false;
   }
 }
+
+function openMonitor(): void {
+  view.value = 'monitor';
+}
+
 onMounted(refreshHealth);
 </script>
 <template>
-  <nav class="app-nav">
-    <button type="button" class="nav-button" :class="{ active: view === 'home' }" @click="view = 'home'">首页</button>
-    <button type="button" class="nav-button" :class="{ active: view === 'editor' }" @click="view = 'editor'">Workflow 编辑器</button>
-    <button type="button" class="nav-button" :class="{ active: view === 'monitor' }" @click="view = 'monitor'">运行监控</button>
+  <nav class="app-nav" aria-label="主导航">
+    <button
+      type="button"
+      class="nav-button"
+      :class="{ active: view === 'home' }"
+      @click="view = 'home'"
+    >
+      首页
+    </button>
+    <button
+      type="button"
+      class="nav-button"
+      :class="{ active: view === 'editor' }"
+      @click="view = 'editor'"
+    >
+      Workflow 编辑器
+    </button>
+    <button
+      type="button"
+      class="nav-button"
+      :class="{ active: view === 'monitor' }"
+      @click="view = 'monitor'"
+    >
+      运行监控
+    </button>
   </nav>
   <main v-if="view === 'home'" class="page-shell">
     <section class="hero-card">
@@ -51,6 +78,6 @@ onMounted(refreshHealth);
       </div>
     </section>
   </main>
-  <WorkflowEditor v-else-if="view === 'editor'" />
-  <RunMonitor v-else-if="view === 'monitor'" />
+  <WorkflowEditor v-else-if="view === 'editor'" @run-started="openMonitor" />
+  <RunMonitor v-else />
 </template>
