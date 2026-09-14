@@ -9,6 +9,11 @@ export interface HealthResponse {
    * 向后兼容的新增字段。
    */
   uptime: number;
+  /**
+   * 当前运行机器的 hostname，运行时动态获取。
+   * 向后兼容的新增字段。
+   */
+  host: string;
 }
 
 export * from './workflow.js';

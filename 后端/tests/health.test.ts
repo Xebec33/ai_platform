@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { computeUptimeSeconds } from '../src/api/routes/health.js';
@@ -30,15 +31,27 @@ describe('GET /health', () => {
     expect(body.uptime).toBeGreaterThanOrEqual(0);
   });
 
-  it('keeps existing fields unchanged while adding uptime', async () => {
+  it('includes host as the current machine hostname', async () => {
+    app = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/health' });
+    const body = response.json();
+    expect(response.statusCode).toBe(200);
+    expect(Object.prototype.hasOwnProperty.call(body, 'host')).toBe(true);
+    expect(typeof body.host).toBe('string');
+    expect(body.host.length).toBeGreaterThan(0);
+    expect(body.host).toBe(hostname());
+  });
+
+  it('keeps existing fields unchanged while adding uptime and host', async () => {
     app = await createApp();
     const body = (await app.inject({ method: 'GET', url: '/health' })).json();
     expect(Object.keys(body).sort()).toEqual(
-      ['service', 'status', 'timestamp', 'uptime', 'version'].sort(),
+      ['host', 'service', 'status', 'timestamp', 'uptime', 'version'].sort(),
     );
     expect(body.status).toBe('ok');
     expect(body.service).toBe('backend');
     expect(body.version).toBe('1.0.0');
+    expect(body.host).toBe(hostname());
   });
 
   it('keeps uptime monotonically non-decreasing while the process runs', async () => {
