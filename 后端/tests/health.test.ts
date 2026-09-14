@@ -42,16 +42,27 @@ describe('GET /health', () => {
     expect(body.host).toBe(hostname());
   });
 
-  it('keeps existing fields unchanged while adding uptime and host', async () => {
+  it('includes pid as the current Node process id', async () => {
+    app = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/health' });
+    const body = response.json();
+    expect(response.statusCode).toBe(200);
+    expect(Object.prototype.hasOwnProperty.call(body, 'pid')).toBe(true);
+    expect(Number.isInteger(body.pid)).toBe(true);
+    expect(body.pid).toBe(process.pid);
+  });
+
+  it('keeps existing fields unchanged while adding uptime, host and pid', async () => {
     app = await createApp();
     const body = (await app.inject({ method: 'GET', url: '/health' })).json();
     expect(Object.keys(body).sort()).toEqual(
-      ['host', 'service', 'status', 'timestamp', 'uptime', 'version'].sort(),
+      ['host', 'pid', 'service', 'status', 'timestamp', 'uptime', 'version'].sort(),
     );
     expect(body.status).toBe('ok');
     expect(body.service).toBe('backend');
     expect(body.version).toBe('1.0.0');
     expect(body.host).toBe(hostname());
+    expect(body.pid).toBe(process.pid);
   });
 
   it('keeps uptime monotonically non-decreasing while the process runs', async () => {

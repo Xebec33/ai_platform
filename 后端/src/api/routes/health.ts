@@ -20,5 +20,6 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
     timestamp: new Date().toISOString(),
     uptime: computeUptimeSeconds(processStartedAtMs),
     host: hostname(),
+    pid: process.pid,
   }));
 }

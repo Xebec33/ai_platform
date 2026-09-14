@@ -14,6 +14,11 @@ export interface HealthResponse {
    * 向后兼容的新增字段。
    */
   host: string;
+  /**
+   * 当前 Node 进程的进程号，运行时动态取自 process.pid。
+   * 向后兼容的新增字段。
+   */
+  pid: number;
 }
 
 export * from './workflow.js';
