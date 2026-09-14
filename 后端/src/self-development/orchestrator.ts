@@ -46,6 +46,8 @@ export class SelfDevelopmentOrchestrator {
       await this.options.sessions.record(taskId, { workspace, run, merged: false });
       return { workspace, run, merged: false };
     }
+    // merge 会写入源码并可能触发 dev server 热重启，先落盘再合并
+    await this.options.sessions.record(taskId, { workspace, run, merged: false });
     let mergeOutput: string;
     try {
       mergeOutput = await this.options.workspaceManager.merge(workspace);
