@@ -164,7 +164,11 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         agentRegistry,
         model: selfDevModel,
         codingModel: process.env.CODING_AGENT_MODEL?.trim() || selfDevModel,
-        runtime: { agentExecutor: createDefaultAgentExecutor({ maxToolRounds: 16 }) },
+        runtime: {
+          agentExecutor: createDefaultAgentExecutor({
+            maxToolRounds: readPositiveInteger('SELF_DEVELOPMENT_MAX_TOOL_ROUNDS', 16),
+          }),
+        },
       }),
       sessions,
     });
