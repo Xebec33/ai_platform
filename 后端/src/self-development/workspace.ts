@@ -35,7 +35,7 @@ export class WorkspaceManagerError extends Error {
 
 export class DevelopmentWorkspaceManager {
   private readonly repositoryRoot: string;
-  private readonly workspacesRoot: string;
+  readonly workspacesRoot: string;
   private readonly configuredBaseBranch: string | undefined;
   private readonly gitAuthorName: string;
   private readonly gitAuthorEmail: string;

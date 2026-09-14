@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { DevelopmentSessionManager } from '../../src/self-development/session.js';
 import { DevelopmentWorkspaceManager } from '../../src/self-development/workspace.js';
 import { runWorkspaceCommand } from '../../src/tools/shell/index.js';
 
@@ -63,6 +64,54 @@ describe('DevelopmentWorkspaceManager', () => {
       expect(await readFile(path.join(repositoryRoot, 'README.txt'), 'utf8')).toBe('changed\n');
       expect(await readFile(path.join(repositoryRoot, 'new.txt'), 'utf8')).toBe('new\n');
       await manager.remove(workspace);
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+      await rm(workspacesRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('DevelopmentSessionManager persistence', () => {
+  it('restores sessions and recorded results from disk after a restart', async () => {
+    const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-repository-'));
+    const workspacesRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-workspaces-'));
+    const sandbox = { execute: async () => { throw new Error('not used'); } };
+    try {
+      await git(repositoryRoot, ['init', '-b', 'main']);
+      await writeFile(path.join(repositoryRoot, 'README.txt'), 'base\n');
+      await git(repositoryRoot, ['add', 'README.txt']);
+      await git(repositoryRoot, ['-c', 'user.name=Bootstrap', '-c', 'user.email=bootstrap@example.com', 'commit', '-m', 'initial']);
+      const workspaceManager = new DevelopmentWorkspaceManager({ repositoryRoot, workspacesRoot });
+      const sessions = new DevelopmentSessionManager({ workspaceManager, sandboxExecutor: sandbox as never });
+      const workspace = await sessions.create('persisted-task');
+      await sessions.record('persisted-task', {
+        workspace,
+        merged: true,
+        mergeOutput: 'Merge made by the ort strategy.',
+        run: {
+          id: 'run-1',
+          workflowId: 'self-development-v1',
+          status: 'SUCCESS',
+          variables: {},
+          nodeRuns: [],
+          startedAt: '2026-09-14T00:00:00.000Z',
+          iterations: {},
+        },
+      });
+
+      const revived = new DevelopmentSessionManager({ workspaceManager, sandboxExecutor: sandbox as never });
+      await revived.restore();
+      expect(revived.list().map((session) => session.id)).toEqual(['persisted-task']);
+      expect(revived.getResult('persisted-task')).toMatchObject({
+        merged: true,
+        mergeOutput: 'Merge made by the ort strategy.',
+        run: { status: 'SUCCESS', id: 'run-1' },
+      });
+
+      await revived.remove('persisted-task');
+      const afterRemove = new DevelopmentSessionManager({ workspaceManager, sandboxExecutor: sandbox as never });
+      await afterRemove.restore();
+      expect(afterRemove.list()).toEqual([]);
     } finally {
       await rm(repositoryRoot, { recursive: true, force: true });
       await rm(workspacesRoot, { recursive: true, force: true });

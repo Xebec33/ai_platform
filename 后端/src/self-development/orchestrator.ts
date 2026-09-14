@@ -43,14 +43,14 @@ export class SelfDevelopmentOrchestrator {
     });
     const run = await runtime.execute({ variables: { requirement: workflowOptions.requirement ?? workflow.variables.requirement } });
     if (run.status !== 'SUCCESS') {
-      this.options.sessions.record(taskId, { workspace, run, merged: false });
+      await this.options.sessions.record(taskId, { workspace, run, merged: false });
       return { workspace, run, merged: false };
     }
     let mergeOutput: string;
     try {
       mergeOutput = await this.options.workspaceManager.merge(workspace);
     } catch (error) {
-      this.options.sessions.record(taskId, {
+      await this.options.sessions.record(taskId, {
         workspace,
         run,
         merged: false,
@@ -58,7 +58,7 @@ export class SelfDevelopmentOrchestrator {
       });
       throw error;
     }
-    this.options.sessions.record(taskId, { workspace, run, merged: true, mergeOutput });
+    await this.options.sessions.record(taskId, { workspace, run, merged: true, mergeOutput });
     return { workspace, run, merged: true, mergeOutput };
   }
 }

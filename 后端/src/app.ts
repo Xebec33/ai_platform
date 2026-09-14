@@ -144,6 +144,7 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
         (process.env.SELF_DEVELOPMENT_WORKSPACES_ROOT?.trim() || undefined),
     });
     const sessions = new DevelopmentSessionManager({ workspaceManager, sandboxExecutor: sandbox });
+    await sessions.restore();
     const codingAdapter =
       process.env.CODING_AGENT_IN_SANDBOX === 'true'
         ? new DockerCodingAgentAdapter({
