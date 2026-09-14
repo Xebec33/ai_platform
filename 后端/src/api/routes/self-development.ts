@@ -52,7 +52,11 @@ export async function registerSelfDevelopmentRoutes(
       if (!session) return reply.code(404).send({ error: '开发会话不存在' });
       try {
         const diff = await options.sessions.diff(session.id);
-        return reply.send({ workspace: session, diff });
+        return reply.send({
+          workspace: session,
+          diff,
+          result: options.sessions.getResult(session.id) ?? null,
+        });
       } catch (error) {
         return reply.code(422).send({
           error: '获取会话 Diff 失败',

@@ -36,9 +36,17 @@ export interface SelfDevelopmentRunError {
   code: string;
 }
 
+export interface SelfDevelopmentSessionResult {
+  run: SelfDevelopmentRunResult['run'];
+  merged: boolean;
+  mergeOutput?: string;
+  mergeError?: string;
+}
+
 export interface SelfDevelopmentSessionDiff {
   workspace: SelfDevelopmentWorkspace;
   diff: { status: string; diff: string };
+  result?: SelfDevelopmentSessionResult | null;
 }
 
 export async function runSelfDevelopment(payload: {

@@ -1,9 +1,18 @@
 import type { SandboxExecutionResult, SandboxExecutor } from '../sandbox/index.js';
+import type { WorkflowRunResult } from '../workflow/runtime/index.js';
 import {
   DevelopmentWorkspaceManager,
   type DevelopmentWorkspace,
   type WorkspaceDiff,
 } from './workspace.js';
+
+export interface DevelopmentSessionResult {
+  workspace: DevelopmentWorkspace;
+  run: WorkflowRunResult;
+  merged: boolean;
+  mergeOutput?: string;
+  mergeError?: string;
+}
 
 export interface DevelopmentSessionManagerOptions {
   workspaceManager: DevelopmentWorkspaceManager;
@@ -12,6 +21,7 @@ export interface DevelopmentSessionManagerOptions {
 
 export class DevelopmentSessionManager {
   private readonly sessions = new Map<string, DevelopmentWorkspace>();
+  private readonly results = new Map<string, DevelopmentSessionResult>();
 
   constructor(private readonly options: DevelopmentSessionManagerOptions) {}
 
@@ -29,6 +39,14 @@ export class DevelopmentSessionManager {
 
   list(): DevelopmentWorkspace[] {
     return [...this.sessions.values()];
+  }
+
+  record(taskId: string, result: DevelopmentSessionResult): void {
+    this.results.set(taskId, result);
+  }
+
+  getResult(taskId: string): DevelopmentSessionResult | undefined {
+    return this.results.get(taskId);
   }
 
   async diff(taskId: string): Promise<WorkspaceDiff> {

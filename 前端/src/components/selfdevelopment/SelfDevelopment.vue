@@ -5,6 +5,7 @@ import {
   listSelfDevelopmentSessions,
   runSelfDevelopment,
   type SelfDevelopmentRunResult,
+  type SelfDevelopmentSessionResult,
   type SelfDevelopmentWorkspace,
 } from '../../api/self-development';
 
@@ -16,6 +17,8 @@ const sessions = ref<SelfDevelopmentWorkspace[]>([]);
 const sessionsUnavailable = ref(false);
 const diffText = ref('');
 const diffLoading = ref(false);
+const sessionResult = ref<SelfDevelopmentSessionResult | null>(null);
+const activeSessionId = ref('');
 
 const nodeLabel: Record<string, string> = {
   'start-1': '开始',
@@ -74,6 +77,8 @@ async function loadDiff(taskId: string): Promise<void> {
   try {
     const detail = await getSelfDevelopmentSessionDiff(taskId);
     diffText.value = detail.diff.diff || detail.diff.status || '（无变更）';
+    sessionResult.value = detail.result ?? null;
+    activeSessionId.value = taskId;
   } catch {
     diffText.value = '';
   } finally {
@@ -220,11 +225,56 @@ onMounted(refreshSessions);
           :key="session.id"
           type="button"
           class="run-item"
+          :class="{ 'run-item--active': activeSessionId === session.id }"
           @click="loadDiff(session.id)"
         >
           <span class="run-item__id">{{ session.id }}</span>
           <small class="run-item__time">{{ session.createdAt }} · {{ session.branch }}</small>
         </button>
+      </section>
+
+      <section v-if="sessionResult" class="self-dev-result">
+        <div class="panel-heading">
+          <span>会话执行记录：{{ activeSessionId }}</span>
+          <span class="summary-value" :class="sessionResult.run.status === 'SUCCESS' ? 'status--success' : 'status--failed'">
+            {{ sessionResult.run.status }}{{ sessionResult.merged ? ' · 已合并' : '' }}
+          </span>
+        </div>
+        <div v-if="sessionResult.mergeError" class="monitor-error">
+          {{ sessionResult.mergeError }}
+          <p class="monitor-error__hint">开发结果仍保留在会话 workspace 中，可查看下方 Diff。</p>
+        </div>
+        <div v-if="sessionResult.run.error" class="monitor-error">{{ sessionResult.run.error }}</div>
+        <div v-for="nodeRun in sessionResult.run.nodeRuns" :key="nodeRun.id" class="node-run-row">
+          <span class="node-run__icon" :class="nodeRun.status === 'SUCCESS' ? 'status--success' : 'status--failed'">
+            {{ nodeRun.status === 'SUCCESS' ? '✓' : '✗' }}
+          </span>
+          <div class="node-run__body">
+            <div class="node-run__header">
+              <strong>{{ nodeLabel[nodeRun.nodeId] ?? nodeRun.nodeId }}</strong>
+              <small class="node-run__node-id">{{ nodeRun.nodeId }}</small>
+            </div>
+            <div v-if="nodeRun.error" class="node-run__error">{{ nodeRun.error }}</div>
+            <div v-else-if="summary(nodeRun.output)" class="node-run__output">
+              <pre>{{ summary(nodeRun.output) }}</pre>
+            </div>
+            <details v-if="nodeRun.output" class="node-run__details">
+              <summary>输出详情</summary>
+              <pre class="node-run__json">{{ detailJson(nodeRun.output) }}</pre>
+            </details>
+            <details v-if="codingSteps(nodeRun.output).length" class="node-run__details">
+              <summary>执行过程（{{ codingSteps(nodeRun.output).length }} 步）</summary>
+              <div class="coding-steps">
+                <div
+                  v-for="(step, index) in codingSteps(nodeRun.output)"
+                  :key="index"
+                  class="coding-step"
+                  :class="'coding-step--' + step.type"
+                >{{ step.text }}</div>
+              </div>
+            </details>
+          </div>
+        </div>
       </section>
     </div>
   </main>

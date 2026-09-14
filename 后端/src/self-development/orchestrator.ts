@@ -42,8 +42,23 @@ export class SelfDevelopmentOrchestrator {
       workspaceRoot: workspace.path,
     });
     const run = await runtime.execute({ variables: { requirement: workflowOptions.requirement ?? workflow.variables.requirement } });
-    if (run.status !== 'SUCCESS') return { workspace, run, merged: false };
-    const mergeOutput = await this.options.workspaceManager.merge(workspace);
+    if (run.status !== 'SUCCESS') {
+      this.options.sessions.record(taskId, { workspace, run, merged: false });
+      return { workspace, run, merged: false };
+    }
+    let mergeOutput: string;
+    try {
+      mergeOutput = await this.options.workspaceManager.merge(workspace);
+    } catch (error) {
+      this.options.sessions.record(taskId, {
+        workspace,
+        run,
+        merged: false,
+        mergeError: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    this.options.sessions.record(taskId, { workspace, run, merged: true, mergeOutput });
     return { workspace, run, merged: true, mergeOutput };
   }
 }

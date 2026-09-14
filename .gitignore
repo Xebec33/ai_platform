@@ -9,3 +9,6 @@ coverage/
 前端/.env.local
 后端/.env.local
 .ai-workflow-workspaces/
+
+# Demo 运行时产物（用户交互文件），不跟踪
+后端/data/output/

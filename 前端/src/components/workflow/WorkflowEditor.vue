@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { ConnectionMode, VueFlow, type Connection, type NodeMouseEvent } from '@vue-flow/core';
+import { computed, nextTick, onMounted, ref } from 'vue';
+import { ConnectionMode, useVueFlow, VueFlow, type Connection, type NodeMouseEvent } from '@vue-flow/core';
 import { uiGraphToWorkflow, workflowToUiGraph, type WorkflowDefinition } from '@ai-workflow/shared-types';
 import WorkflowNode from '../nodes/WorkflowNode.vue';
 import { serializeWorkflowGraph, type WorkflowNodeType } from '../../editor/workflow-graph';
@@ -10,6 +10,7 @@ import { useWorkflowEditorStore } from '../../stores/workflow-editor';
 
 const emit = defineEmits<{ runStarted: [runId: string] }>();
 const store = useWorkflowEditorStore();
+const { fitView } = useVueFlow();
 const running = ref(false);
 const demos = ref<Array<{ id: string; name: string }>>([]);
 const selectedDemoId = ref('');
@@ -81,6 +82,8 @@ async function loadDemo(): Promise<void> {
     if (!response.ok) throw new Error('Demo 加载失败');
     const workflow = (await response.json()) as WorkflowDefinition;
     store.loadJson(JSON.stringify(workflowToUiGraph(workflow)));
+    await nextTick();
+    await fitView({ padding: 0.2, duration: 300 });
   } catch (cause) {
     store.error = cause instanceof Error ? cause.message : 'Demo 加载失败';
   }
@@ -88,7 +91,11 @@ async function loadDemo(): Promise<void> {
 function onNodeClick(event: NodeMouseEvent): void { store.selectNode(event.node.id); }
 function onConnect(connection: Connection): void { store.connect(connection); }
 function exportJson(): void { jsonText.value = serializeWorkflowGraph(store.graph); showJson.value = true; }
-function importJson(): void { store.loadJson(jsonText.value); showJson.value = false; }
+function importJson(): void {
+  store.loadJson(jsonText.value);
+  showJson.value = false;
+  void nextTick(() => fitView({ padding: 0.2, duration: 300 }));
+}
 function updateNumber(key: string, event: Event): void { store.updateSelectedConfig(key, Number((event.target as HTMLInputElement).value)); }
 function updateField(index: number, key: string, value: unknown): void {
   const fields = outputFields.value.map((field) => ({ ...field }));

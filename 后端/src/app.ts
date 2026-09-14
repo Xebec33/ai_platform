@@ -1,5 +1,6 @@
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
+import path from 'node:path';
 import { registerHealthRoute } from './api/routes/health.js';
 import { registerWorkflowRoutes } from './api/routes/workflows.js';
 import { registerRunRoutes } from './api/routes/runs.js';
@@ -64,7 +65,10 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
   const monitor =
     options.monitor === undefined ? new InMemoryRunMonitor() : (options.monitor ?? undefined);
   const workspaceRoot =
-    options.workspaceRoot ?? (process.env.WORKSPACE_ROOT?.trim() || process.cwd());
+    options.workspaceRoot ??
+    (process.env.WORKSPACE_ROOT?.trim()
+      ? path.resolve(process.env.WORKSPACE_ROOT.trim())
+      : process.cwd());
   const inviteCode =
     options.inviteCode ??
     (process.env.NODE_ENV === 'test' ? undefined : process.env.INVITE_CODE?.trim() || undefined);
@@ -136,7 +140,8 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     const workspaceManager = new DevelopmentWorkspaceManager({
       repositoryRoot,
       workspacesRoot:
-        options.selfDevelopment?.workspacesRoot ?? process.env.SELF_DEVELOPMENT_WORKSPACES_ROOT,
+        options.selfDevelopment?.workspacesRoot ??
+        (process.env.SELF_DEVELOPMENT_WORKSPACES_ROOT?.trim() || undefined),
     });
     const sessions = new DevelopmentSessionManager({ workspaceManager, sandboxExecutor: sandbox });
     const codingAdapter =
