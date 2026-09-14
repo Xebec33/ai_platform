@@ -1136,3 +1136,64 @@ h1 {
   font-size: 12px;
   cursor: pointer;
 }
+
+.monitor-error__hint {
+  margin: 6px 0 0;
+  color: #ffd0a8;
+  font-size: 13px;
+}
+
+.node-run__details {
+  margin-top: 6px;
+}
+
+.node-run__details summary {
+  color: #8290b5;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.node-run__details[open] summary {
+  color: #aab7d8;
+}
+
+.node-run__json {
+  max-height: 260px;
+  margin: 6px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(181, 194, 255, 0.1);
+  border-radius: 8px;
+  color: #c7d3f5;
+  background: rgba(4, 8, 18, 0.8);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.coding-steps {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid rgba(181, 194, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(4, 8, 18, 0.8);
+}
+
+.coding-step {
+  color: #b7c4e8;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.coding-step--tool {
+  color: #7fd8ff;
+}
+
+.coding-step--step {
+  color: #6e7ba0;
+}

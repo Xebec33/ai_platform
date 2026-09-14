@@ -31,6 +31,11 @@ const nodeLabel: Record<string, string> = {
   'end-1': '完成',
 };
 
+const mergeErrorHints: Record<string, string> = {
+  BASE_WORKTREE_DIRTY: '基础仓库存在未提交的修改。请先提交（git commit）当前改动，开发结果仍保留在会话中，之后可重新运行或手动合并。',
+  BASE_BRANCH_NOT_CHECKED_OUT: '基础仓库当前检出的分支不是配置的基础分支，请切换回基础分支后重试。',
+};
+
 async function startRun(): Promise<void> {
   if (!requirement.value.trim()) {
     error.value = '请先输入开发需求';
@@ -80,8 +85,34 @@ const summary = (output?: Record<string, unknown>): string => {
   if (!output) return '';
   const value = output.summary ?? output.passed ?? output.issues ?? output.goals;
   if (typeof value === 'string') return value;
+  if (value === undefined) return '';
   return JSON.stringify(value);
 };
+
+interface CodingStep {
+  type: string;
+  text: string;
+}
+
+const codingSteps = (output?: Record<string, unknown>): CodingStep[] => {
+  if (!output) return [];
+  const events = Array.isArray(output.events) ? output.events : [];
+  const steps: CodingStep[] = [];
+  for (const event of events) {
+    if (typeof event !== 'object' || event === null) continue;
+    const record = event as Record<string, unknown>;
+    const part = record.part as Record<string, unknown> | undefined;
+    const type = typeof record.type === 'string' ? record.type : '';
+    if (type === 'step_start') steps.push({ type: 'step', text: '执行步骤开始' });
+    else if (type === 'text' && typeof part?.text === 'string' && part.text.trim())
+      steps.push({ type: 'text', text: part.text });
+    else if (type === 'tool' && part && typeof part.tool === 'string')
+      steps.push({ type: 'tool', text: '调用工具：' + part.tool });
+  }
+  return steps;
+};
+
+const detailJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
 onMounted(refreshSessions);
 </script>
@@ -95,7 +126,12 @@ onMounted(refreshSessions);
         <p class="editor-subtitle">输入需求，平台通过自身的 Agent 工作流完成开发并合并代码</p>
       </div>
     </header>
-    <div v-if="error" class="monitor-error">{{ error }}</div>
+    <div v-if="error" class="monitor-error">
+      {{ error }}
+      <p v-if="error.includes('BASE_WORKTREE_DIRTY')" class="monitor-error__hint">
+        {{ mergeErrorHints.BASE_WORKTREE_DIRTY }}
+      </p>
+    </div>
     <div class="self-dev-content">
       <section class="self-dev-form panel-heading-wide">
         <label class="config-form">
@@ -129,7 +165,12 @@ onMounted(refreshSessions);
             {{ result.run.status }}{{ result.merged ? ' · 已合并' : '' }}
           </span>
         </div>
-        <div v-if="result.run.error" class="monitor-error">{{ result.run.error }}</div>
+        <div v-if="result.run.error" class="monitor-error">
+          {{ result.run.error }}
+          <p v-if="mergeErrorHints[result.run.errorCode ?? '']" class="monitor-error__hint">
+            {{ mergeErrorHints[result.run.errorCode ?? ''] }}
+          </p>
+        </div>
         <div v-for="nodeRun in result.run.nodeRuns" :key="nodeRun.id" class="node-run-row">
           <span class="node-run__icon" :class="nodeRun.status === 'SUCCESS' ? 'status--success' : 'status--failed'">
             {{ nodeRun.status === 'SUCCESS' ? '✓' : '✗' }}
@@ -143,6 +184,21 @@ onMounted(refreshSessions);
             <div v-else-if="summary(nodeRun.output)" class="node-run__output">
               <pre>{{ summary(nodeRun.output) }}</pre>
             </div>
+            <details v-if="nodeRun.output" class="node-run__details">
+              <summary>输出详情</summary>
+              <pre class="node-run__json">{{ detailJson(nodeRun.output) }}</pre>
+            </details>
+            <details v-if="codingSteps(nodeRun.output).length" class="node-run__details">
+              <summary>执行过程（{{ codingSteps(nodeRun.output).length }} 步）</summary>
+              <div class="coding-steps">
+                <div
+                  v-for="(step, index) in codingSteps(nodeRun.output)"
+                  :key="index"
+                  class="coding-step"
+                  :class="'coding-step--' + step.type"
+                >{{ step.text }}</div>
+              </div>
+            </details>
           </div>
         </div>
         <div v-if="diffLoading" class="empty-state">加载变更 Diff...</div>

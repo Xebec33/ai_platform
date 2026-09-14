@@ -31,6 +31,11 @@ export interface SelfDevelopmentRunResult {
   mergeOutput?: string;
 }
 
+export interface SelfDevelopmentRunError {
+  error: string;
+  code: string;
+}
+
 export interface SelfDevelopmentSessionDiff {
   workspace: SelfDevelopmentWorkspace;
   diff: { status: string; diff: string };
@@ -48,10 +53,12 @@ export async function runSelfDevelopment(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const result = (await response.json()) as SelfDevelopmentRunResult & { error?: string };
-  if (!response.ok && !result.run)
-    throw new Error(result.error ?? 'Self-development 执行失败: ' + response.status);
-  return result;
+  const result = (await response.json()) as (SelfDevelopmentRunResult & SelfDevelopmentRunError) & { run?: SelfDevelopmentRunResult['run'] };
+  if (!response.ok && !result.run) {
+    const suffix = result.code && result.code !== 'SELF_DEVELOPMENT_FAILED' ? `（${result.code}）` : '';
+    throw new Error((result.error || 'Self-development 执行失败') + suffix);
+  }
+  return result as SelfDevelopmentRunResult;
 }
 
 export async function listSelfDevelopmentSessions(): Promise<SelfDevelopmentWorkspace[]> {

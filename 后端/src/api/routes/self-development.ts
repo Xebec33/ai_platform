@@ -28,9 +28,13 @@ export async function registerSelfDevelopmentRoutes(
       return reply.code(result.run.status === 'SUCCESS' ? 200 : 422).send(result);
     } catch (error) {
       request.log.error(error);
-      return reply.code(500).send({
-        error: 'Self-development 执行失败',
-        details: error instanceof Error ? error.message : String(error),
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
+          ? (error as { code: string }).code
+          : 'SELF_DEVELOPMENT_FAILED';
+      return reply.code(422).send({
+        error: error instanceof Error ? error.message : 'Self-development 执行失败',
+        code,
       });
     }
   });
