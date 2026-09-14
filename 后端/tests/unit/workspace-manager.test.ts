@@ -11,6 +11,36 @@ async function git(root: string, args: string[]): Promise<void> {
 }
 
 describe('DevelopmentWorkspaceManager', () => {
+  it('merges even when the base repository has untracked files, but rejects tracked modifications', async () => {
+    const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-repository-'));
+    const workspacesRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-workspaces-'));
+    try {
+      await git(repositoryRoot, ['init', '-b', 'main']);
+      await writeFile(path.join(repositoryRoot, 'README.txt'), 'base\n');
+      await git(repositoryRoot, ['add', 'README.txt']);
+      await git(repositoryRoot, ['-c', 'user.name=Bootstrap', '-c', 'user.email=bootstrap@example.com', 'commit', '-m', 'initial']);
+      const manager = new DevelopmentWorkspaceManager({ repositoryRoot, workspacesRoot });
+      await writeFile(path.join(repositoryRoot, 'untracked.txt'), 'untracked\n');
+      const workspace = await manager.create('untracked-tolerance');
+      await writeFile(path.join(workspace.path, 'README.txt'), 'changed\n');
+      await manager.commit(workspace, 'feat: tolerate untracked files');
+      await expect(manager.merge(workspace)).resolves.toContain('Merge');
+      expect(await readFile(path.join(repositoryRoot, 'README.txt'), 'utf8')).toBe('changed\n');
+      expect(await readFile(path.join(repositoryRoot, 'untracked.txt'), 'utf8')).toBe('untracked\n');
+      await manager.remove(workspace);
+
+      await writeFile(path.join(repositoryRoot, 'README.txt'), 'dirty\n');
+      const next = await manager.create('dirty-rejection');
+      await writeFile(path.join(next.path, 'new.txt'), 'new\n');
+      await manager.commit(next, 'feat: next change');
+      await expect(manager.merge(next)).rejects.toMatchObject({ code: 'BASE_WORKTREE_DIRTY' });
+      await manager.remove(next);
+    } finally {
+      await rm(repositoryRoot, { recursive: true, force: true });
+      await rm(workspacesRoot, { recursive: true, force: true });
+    }
+  });
+
   it('creates an isolated branch, commits changes, diffs, merges and removes it', async () => {
     const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-repository-'));
     const workspacesRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-workspaces-'));

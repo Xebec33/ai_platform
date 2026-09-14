@@ -95,7 +95,7 @@ export class DevelopmentWorkspaceManager {
         'BASE_BRANCH_NOT_CHECKED_OUT',
         `基础仓库当前分支为 ${current || '(detached)'}，需要先切换到 ${workspace.baseBranch}`,
       );
-    const status = await this.git(['status', '--porcelain'], workspace.repositoryRoot);
+    const status = await this.git(['status', '--porcelain', '--untracked-files=no'], workspace.repositoryRoot);
     if (status.trim()) throw new WorkspaceManagerError('BASE_WORKTREE_DIRTY', '基础仓库存在未提交修改，拒绝 Merge');
     return this.git(['merge', '--no-ff', '--no-edit', workspace.branch], workspace.repositoryRoot);
   }
