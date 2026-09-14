@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import type { HealthResponse } from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
 
@@ -18,5 +19,6 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     uptime: computeUptimeSeconds(processStartedAtMs),
+    host: hostname(),
   }));
 }
