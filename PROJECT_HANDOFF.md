@@ -234,6 +234,18 @@ OPENAI_MODEL=deepseek-chat
 | POST | `/runs/:runId/cancel` | 取消运行 |
 | GET | `/runs/:runId/events` | SSE 事件流 |
 
+#### `GET /health` 响应契约
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status` | `'ok'` | 健康状态，保持既有取值 |
+| `service` | `'backend'` | 服务标识，保持既有取值 |
+| `version` | `string` | 服务版本，保持既有取值 |
+| `timestamp` | `string` | 响应生成时间（ISO 8601），保持既有取值 |
+| `uptime` | `number` | **新增（向后兼容）**：进程启动至今的运行时长，单位固定为**秒**，非负数值；同一进程内单调不减，进程重启后从 `0` 重新计时 |
+
+> `uptime` 语义统一为「进程启动至今的秒数」，不与毫秒混用。调用方可按 `number` 稳定解析；新增字段不改变路由、HTTP 方法与既有字段。
+
 ---
 
 ## 5. 三个 Demo 工作流
