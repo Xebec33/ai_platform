@@ -195,11 +195,17 @@ function readPositiveInteger(name: string, fallback: number): number {
 
 function codingAgentEnvironment(): Record<string, string> {
   const result: Record<string, string> = {};
-  const apiKey = process.env.OPENAI_API_KEY?.trim() || process.env.DEEPSEEK_API_KEY?.trim();
-  if (apiKey) result.OPENAI_API_KEY = apiKey;
-  for (const name of ['OPENAI_BASE_URL', 'OPENAI_MODEL', 'OPENAI_PROVIDER_ID']) {
+  // opencode 内置 deepseek provider 读取 DEEPSEEK_API_KEY；容器根文件系统只读，
+  // opencode 的配置/缓存目录必须指向可写的 tmpfs
+  for (const name of ['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']) {
     const value = process.env[name]?.trim();
     if (value) result[name] = value;
+  }
+  if (process.env.CODING_AGENT_IN_SANDBOX === 'true') {
+    result.HOME = '/tmp';
+    result.XDG_CONFIG_HOME = '/tmp/.config';
+    result.XDG_DATA_HOME = '/tmp/.local/share';
+    result.XDG_CACHE_HOME = '/tmp/.cache';
   }
   return result;
 }
