@@ -13,6 +13,8 @@ describe('GET /health', () => {
     const body = response.json();
     expect(response.statusCode).toBe(200);
     expect(body).toMatchObject({ status: 'ok', service: 'backend' });
+    expect(body.version).toBe('1.0.0');
+    expect(typeof body.version).toBe('string');
     expect(new Date(body.timestamp).toString()).not.toBe('Invalid Date');
   });
 });

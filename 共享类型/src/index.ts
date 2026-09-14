@@ -1,6 +1,7 @@
 export interface HealthResponse {
   status: 'ok';
   service: 'backend';
+  version: string;
   timestamp: string;
 }
 
