@@ -5,6 +5,7 @@ export async function registerHealthRoute(app: FastifyInstance): Promise<void> {
   app.get('/health', async (): Promise<HealthResponse> => ({
     status: 'ok',
     service: 'backend',
+    version: '1.0.0',
     timestamp: new Date().toISOString(),
   }));
 }
