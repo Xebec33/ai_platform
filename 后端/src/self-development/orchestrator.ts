@@ -14,6 +14,8 @@ export interface SelfDevelopmentOrchestratorOptions {
   toolRegistry?: ToolRegistry;
   agentRegistry: AgentRegistry;
   runtime?: Omit<WorkflowRuntimeOptions, 'workspaceRoot' | 'toolRegistry' | 'agentRegistry'>;
+  model?: string;
+  codingModel?: string;
 }
 
 export interface SelfDevelopmentResult {
@@ -29,7 +31,10 @@ export class SelfDevelopmentOrchestrator {
   async execute(workflowOptions: SelfDevelopmentWorkflowOptions = {}): Promise<SelfDevelopmentResult> {
     const taskId = workflowOptions.taskId ?? `task-${Date.now()}`;
     const workspace = await this.options.sessions.create(taskId);
-    const workflow = createSelfDevelopmentWorkflow({ ...workflowOptions, taskId });
+    const defaults: SelfDevelopmentWorkflowOptions = {};
+    if (this.options.model) defaults.model = this.options.model;
+    if (this.options.codingModel) defaults.codingModel = this.options.codingModel;
+    const workflow = createSelfDevelopmentWorkflow({ ...defaults, ...workflowOptions, taskId });
     const runtime = createWorkflowRuntime(workflow, {
       ...this.options.runtime,
       agentRegistry: this.options.agentRegistry,

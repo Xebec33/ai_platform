@@ -150,12 +150,15 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
     const agentRegistry = new AgentRegistry([
       ['coding-agent', new CodingAgentExecutor({ adapter: codingAdapter })],
     ]);
+    const selfDevModel = process.env.OPENAI_MODEL?.trim() || undefined;
     await registerSelfDevelopmentRoutes(app, {
       orchestrator: new SelfDevelopmentOrchestrator({
         sessions,
         workspaceManager,
         toolRegistry,
         agentRegistry,
+        model: selfDevModel,
+        codingModel: process.env.CODING_AGENT_MODEL?.trim() || selfDevModel,
         runtime: { agentExecutor: createDefaultAgentExecutor({ maxToolRounds: 16 }) },
       }),
       sessions,
