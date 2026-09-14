@@ -21,7 +21,7 @@ export class GitTool implements Tool {
     type: 'object',
     required: ['operation'],
     properties: {
-      operation: { type: 'string', enum: ['status', 'diff', 'branch', 'checkout', 'commit'] },
+      operation: { type: 'string', enum: ['status', 'diff', 'branch', 'checkout', 'commit', 'merge'] },
       branch: { type: 'string' },
       message: { type: 'string' },
       paths: { type: 'array', items: { type: 'string' } },
@@ -47,6 +47,29 @@ export class GitTool implements Tool {
         const repositoryRoot = normalizeWorkspaceRoot(discovery.stdout.trim());
         if (!isWithinWorkspace(workspaceRoot, repositoryRoot))
           throw new ToolError('WORKSPACE_BOUNDARY', 'Git 仓库根目录必须位于 workspaceRoot 内');
+      }
+      if (operation === 'commit') {
+        const staged = await runWorkspaceCommand('git', ['add', '--all'], context, {
+          cwd: workspaceRoot,
+          timeoutMs,
+          env,
+        });
+        if (staged.exitCode !== 0 || staged.timedOut)
+          return {
+            ok: false,
+            output: {
+              operation,
+              stdout: staged.stdout,
+              stderr: staged.stderr,
+              exitCode: staged.exitCode,
+              signal: staged.signal,
+              timedOut: staged.timedOut,
+            },
+            error: {
+              code: staged.timedOut ? 'GIT_TIMEOUT' : 'GIT_ERROR',
+              message: staged.timedOut ? 'Git 暂存操作超时' : 'Git 暂存操作失败',
+            },
+          };
       }
       const result = await runWorkspaceCommand('git', args, context, {
         cwd: workspaceRoot,
@@ -97,6 +120,12 @@ export class GitTool implements Tool {
       case 'commit': {
         const message = requiredString(input, 'message');
         return ['commit', '-m', message];
+      }
+      case 'merge': {
+        const branch = requiredString(input, 'branch');
+        if (!BRANCH_PATTERN.test(branch) || branch.startsWith('-'))
+          throw new Error('branch 名称不合法');
+        return ['merge', '--no-ff', '--no-edit', branch];
       }
       default:
         throw new Error('不支持的 Git operation：' + operation);

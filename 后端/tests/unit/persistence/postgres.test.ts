@@ -36,6 +36,9 @@ describe('PostgresPersistence', () => {
       max: 20,
       idleTimeoutMillis: 45000,
       connectionTimeoutMillis: 12000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      maxLifetimeSeconds: 300,
       statement_timeout: 60000,
       application_name: 'workflow-api',
       ssl: {

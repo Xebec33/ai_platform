@@ -9,6 +9,7 @@ export interface RunRoutesOptions {
   persistence?: WorkflowPersistence;
   queue?: JobQueue;
   cancelJob?: (jobId: string) => Promise<WorkflowJob | undefined>;
+  sseHeartbeatMs?: number;
 }
 
 export async function registerRunRoutes(
@@ -58,23 +59,35 @@ export async function registerRunRoutes(
     if (!monitor) return reply.code(503).send({ error: '运行监控未配置' });
 
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
+    reply.raw.flushHeaders?.();
 
     const send = (event: WorkflowRunEvent): void => {
+      if (reply.raw.destroyed || reply.raw.writableEnded) return;
       reply.raw.write(`id: ${event.id}\n`);
       reply.raw.write(`event: ${event.type}\n`);
       reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
     };
+    const heartbeatMs = Math.max(5_000, options.sseHeartbeatMs ?? 15_000);
+    const heartbeat = setInterval(() => {
+      if (reply.raw.destroyed || reply.raw.writableEnded) return;
+      reply.raw.write(`: heartbeat ${Date.now()}\n\n`);
+    }, heartbeatMs);
 
     for (const event of monitor.events.history(runId)) send(event);
 
     const unsubscribe = monitor.subscribe(runId, send);
-    request.raw.on('close', () => {
+    const cleanup = (): void => {
+      clearInterval(heartbeat);
       unsubscribe();
-      reply.raw.end();
-    });
+      if (!reply.raw.writableEnded) reply.raw.end();
+    };
+    request.raw.once('error', cleanup);
+    request.raw.once('close', cleanup);
+    reply.raw.once('error', cleanup);
   });
 }

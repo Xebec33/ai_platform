@@ -8,3 +8,4 @@ coverage/
 .DS_Store
 前端/.env.local
 后端/.env.local
+.ai-workflow-workspaces/

@@ -1,13 +1,17 @@
 import type { JsonObject, WorkflowDefinition } from '@ai-workflow/shared-types';
+import { apiFetch } from './client';
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
+export async function listWorkflowDemos(): Promise<WorkflowDefinition[]> {
+  const response = await apiFetch('/workflows/demos');
+  if (!response.ok) throw new Error('读取 Demo Workflow 失败: ' + response.status);
+  return (await response.json()) as WorkflowDefinition[];
+}
 
 export async function runWorkflow(
   workflow: WorkflowDefinition,
   variables: JsonObject = {},
-  baseUrl = apiBaseUrl,
 ): Promise<{ id: string }> {
-  const response = await fetch(baseUrl + '/workflows/run', {
+  const response = await apiFetch('/workflows/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workflow, variables }),

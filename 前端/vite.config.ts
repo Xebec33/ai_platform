@@ -8,8 +8,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/health': { target: 'http://localhost:3000', changeOrigin: true },
-      '/runs': { target: 'http://localhost:3000', changeOrigin: true },
+      '/auth': { target: 'http://localhost:3000', changeOrigin: true },
       '/workflows': { target: 'http://localhost:3000', changeOrigin: true },
+      '/runs': { target: 'http://localhost:3000', changeOrigin: true },
+      '/workspace': { target: 'http://localhost:3000', changeOrigin: true },
+      '/self-development': { target: 'http://localhost:3000', changeOrigin: true },
     },
   },
 });

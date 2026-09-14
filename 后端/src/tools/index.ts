@@ -4,6 +4,9 @@ import { GitTool } from './git/index.js';
 import { ShellTool } from './shell/index.js';
 import { HttpRequestTool } from './http/index.js';
 import { SearchTool } from './search/index.js';
+import { SandboxTool } from './sandbox.js';
+import { DemoFixtureTool } from './demo-fixture.js';
+import type { SandboxExecutor } from '../sandbox/index.js';
 import {
   ToolError,
   type Tool,
@@ -51,7 +54,10 @@ export class ToolRegistry {
   }
 }
 
-export function createDefaultToolRegistry(workspaceRoot = process.cwd()): ToolRegistry {
+export function createDefaultToolRegistry(
+  workspaceRoot = process.cwd(),
+  sandboxExecutor?: SandboxExecutor,
+): ToolRegistry {
   normalizeWorkspaceRoot(workspaceRoot);
   return new ToolRegistry([
     new FileReadTool(),
@@ -60,6 +66,8 @@ export function createDefaultToolRegistry(workspaceRoot = process.cwd()): ToolRe
     new GitTool(),
     new HttpRequestTool(),
     new SearchTool(),
+    new DemoFixtureTool(),
+    ...(sandboxExecutor ? [new SandboxTool(sandboxExecutor)] : []),
   ]);
 }
 
@@ -70,3 +78,5 @@ export * from './shell/index.js';
 export * from './git/index.js';
 export * from './http/index.js';
 export * from './search/index.js';
+export * from './sandbox.js';
+export * from './demo-fixture.js';

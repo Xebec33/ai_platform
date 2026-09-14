@@ -108,6 +108,34 @@ describe('WorkflowWorker', () => {
     expect(queue.complete).toHaveBeenCalledWith('job-1', 'SUCCESS', 'worker-1');
   });
 
+  it('keeps polling after a transient queue connection error', async () => {
+    const job = makeJob();
+    const queue = {
+      claim: vi.fn().mockRejectedValueOnce(new Error('read ETIMEDOUT')).mockResolvedValueOnce(undefined),
+      complete: vi.fn(),
+      fail: vi.fn(),
+      renew: vi.fn(async () => true),
+      cancel: vi.fn(),
+      get: vi.fn(),
+      getByRunId: vi.fn(),
+    };
+    const persistence = { getWorkflow: vi.fn() };
+    const errors: unknown[] = [];
+    const worker = new WorkflowWorker(queue, persistence, undefined, {
+      workerId: 'worker-1',
+      pollIntervalMs: 10,
+      onError: (error) => errors.push(error),
+    });
+
+    await worker.start();
+    expect(errors).toHaveLength(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await worker.stop();
+    expect(queue.claim).toHaveBeenCalledTimes(2);
+    expect(errors[0]).toBeInstanceOf(Error);
+    void job;
+  });
+
   it('respects concurrency and cancels an active job', async () => {
     const job = makeJob();
     const queue = {

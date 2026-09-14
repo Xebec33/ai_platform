@@ -1,8 +1,15 @@
 import type { JsonObject } from '@ai-workflow/shared-types';
+import { apiFetch, eventSourceUrl } from './client';
 
 export type RunStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
 
 export type NodeRunStatus = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED';
+
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
 
 export interface NodeRun {
   id: string;
@@ -12,6 +19,7 @@ export interface NodeRun {
   output?: JsonObject;
   attempts: number;
   iteration?: number;
+  usage?: TokenUsage;
   error?: string;
   errorCode?: string;
   startedAt: string;
@@ -49,16 +57,14 @@ export interface WorkflowRunEvent {
   errorCode?: string;
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
-
-export async function getRuns(baseUrl = apiBaseUrl): Promise<WorkflowRun[]> {
-  const response = await fetch(baseUrl + '/runs');
+export async function getRuns(): Promise<WorkflowRun[]> {
+  const response = await apiFetch('/runs');
   if (!response.ok) throw new Error('获取 Run 列表失败: ' + response.status);
   return (await response.json()) as WorkflowRun[];
 }
 
-export async function getRun(runId: string, baseUrl = apiBaseUrl): Promise<WorkflowRun> {
-  const response = await fetch(baseUrl + '/runs/' + runId);
+export async function getRun(runId: string): Promise<WorkflowRun> {
+  const response = await apiFetch('/runs/' + runId);
   if (!response.ok) throw new Error('获取 Run 详情失败: ' + response.status);
   return (await response.json()) as WorkflowRun;
 }
@@ -67,9 +73,8 @@ export function subscribeRunEvents(
   runId: string,
   onEvent: (event: WorkflowRunEvent) => void,
   onError?: (error: Event) => void,
-  baseUrl = apiBaseUrl,
 ): EventSource {
-  const source = new EventSource(baseUrl + '/runs/' + runId + '/events');
+  const source = new EventSource(eventSourceUrl('/runs/' + runId + '/events'));
   source.onmessage = (message) => {
     try {
       onEvent(JSON.parse(message.data) as WorkflowRunEvent);

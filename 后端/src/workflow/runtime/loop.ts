@@ -37,6 +37,49 @@ export function evaluateLoopCondition(expression: string, state: LoopState): boo
     .split('||')
     .some((part) => part.split('&&').every((item) => evaluateComparison(item.trim(), state)));
 }
+
+export function evaluateConfiguredCondition(
+  parameter: string,
+  relation: string,
+  comparisonValue: JsonValue | undefined,
+  state: LoopState,
+): boolean {
+  const left = resolvePath(parameter, state);
+  const right = parseConfiguredLiteral(comparisonValue);
+  switch (relation) {
+    case 'equals':
+      return looseEquals(left, right);
+    case 'not_equals':
+      return !looseEquals(left, right);
+    case 'greater_than':
+      return compareNumbers(left, right, (a, b) => a > b);
+    case 'greater_or_equal':
+      return compareNumbers(left, right, (a, b) => a >= b);
+    case 'less_than':
+      return compareNumbers(left, right, (a, b) => a < b);
+    case 'less_or_equal':
+      return compareNumbers(left, right, (a, b) => a <= b);
+    default:
+      throw new LoopEvaluationError('不支持的 Condition relation：' + relation);
+  }
+}
+
+function parseConfiguredLiteral(value: JsonValue | undefined): JsonValue | undefined {
+  if (typeof value !== 'string') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (value === 'null') return null;
+  if (/^-?\d+(\.\d+)?$/.test(value.trim())) return Number(value);
+  return value;
+}
+
+function compareNumbers(
+  left: JsonValue | undefined,
+  right: JsonValue | undefined,
+  compare: (left: number, right: number) => boolean,
+): boolean {
+  return typeof left === 'number' && typeof right === 'number' && compare(left, right);
+}
 export function classifyLoopEdges(node: LoopNode, edges: WorkflowEdge[]): ClassifiedLoopEdges {
   const bodyId = text(node.config.bodyNodeId);
   const exitId = text(node.config.exitNodeId);
@@ -99,24 +142,38 @@ function parseLiteral(value: string, state: LoopState): JsonValue | undefined {
   return resolvePath(value, state);
 }
 function resolvePath(path: string, state: LoopState): JsonValue | undefined {
-  const parts = path.replace(/^state\./, '').split('.');
-  const root = parts.shift();
-  let value: JsonValue | undefined =
-    root === 'variables'
-      ? state.variables
-      : root === 'nodes'
-        ? state.nodeOutputs[parts.shift() ?? '']
-        : state.variables[root ?? ''];
-  for (const part of parts) {
-    if (!isObject(value)) return undefined;
-    value = value[part];
+  const normalized = path.replace(/^state\./, '').trim();
+  if (!normalized) return undefined;
+  const parts = normalized.split('.');
+  const root = parts[0];
+  if (root === 'variables') return readPath(state.variables, parts.slice(1));
+  if (root === 'nodes') {
+    const nodeId = parts[1];
+    return nodeId ? readPath(state.nodeOutputs[nodeId], parts.slice(2)) : undefined;
   }
-  return value;
+
+  const variableValue = readPath(state.variables, parts);
+  if (variableValue !== undefined) return variableValue;
+  const outputEntries = Object.entries(state.nodeOutputs);
+  for (let index = outputEntries.length - 1; index >= 0; index -= 1) {
+    const value = readPath(outputEntries[index]?.[1], parts);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function readPath(value: JsonValue | undefined, parts: string[]): JsonValue | undefined {
+  let current = value;
+  for (const part of parts) {
+    if (!isObject(current)) return undefined;
+    current = current[part];
+  }
+  return current;
 }
 function looseEquals(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
   if (left === right) return true;
-  if (typeof left === 'number' && typeof right === 'string') return left === Number(right);
-  if (typeof left === 'string' && typeof right === 'number') return Number(left) === right;
+  if (typeof left === 'number' && typeof right === 'string') return Number.isFinite(Number(right)) && left === Number(right);
+  if (typeof left === 'string' && typeof right === 'number') return Number.isFinite(Number(left)) && Number(left) === right;
   return false;
 }
 function isBodyLabel(value: string | undefined): boolean {

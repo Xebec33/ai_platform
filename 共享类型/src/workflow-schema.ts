@@ -21,6 +21,22 @@ export const workflowJsonSchema: JsonSchema = {
     name: { type: 'string', minLength: 1 },
     version: { const: 1 },
     variables: { type: 'object' },
+    inputs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'type'],
+        properties: {
+          name: { type: 'string', minLength: 1 },
+          label: { type: 'string' },
+          type: { enum: ['string', 'number', 'boolean', 'object', 'array'] },
+          required: { type: 'boolean' },
+          description: { type: 'string' },
+          defaultValue: {},
+        },
+        additionalProperties: false,
+      },
+    },
     nodes: { type: 'array', minItems: 1, items: { $ref: '#/$defs/node' } },
     edges: { type: 'array', items: { $ref: '#/$defs/edge' } },
   },
@@ -30,7 +46,7 @@ export const workflowJsonSchema: JsonSchema = {
       required: ['id', 'type', 'name', 'config'],
       properties: {
         id: { type: 'string', minLength: 1 },
-        type: { enum: ['start', 'agent', 'condition', 'loop', 'end'] },
+        type: { enum: ['start', 'agent', 'condition', 'tool', 'loop', 'end'] },
         name: { type: 'string', minLength: 1 },
         config: { type: 'object' },
       },

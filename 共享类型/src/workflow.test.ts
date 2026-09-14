@@ -101,7 +101,16 @@ describe('workflow DSL', () => {
 function loopValidationWorkflow(): ReturnType<typeof createWorkflowDefinition> {
   const workflow = createWorkflowDefinition('loop-validation', 'Loop Validation');
   workflow.nodes = [
-    { id: 'start-1', type: 'start', name: 'Start', config: {} },
+    {
+      id: 'start-1',
+      type: 'start',
+      name: 'Start',
+      config: {
+        inputParameters: [
+          { name: 'inputs', type: 'string', required: true, system: true, description: '' },
+        ],
+      },
+    },
     {
       id: 'loop-1',
       type: 'loop',

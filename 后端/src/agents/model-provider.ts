@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from '@ai-workflow/shared-types';
 import type { TokenUsage } from './agent.js';
+import { createOpenAICompatibleProviderFromEnv } from './openai-compatible-provider.js';
 
 export interface ModelToolDefinition {
   name: string;
@@ -27,10 +28,18 @@ export interface ModelRequest {
   input: JsonValue;
   temperature?: number;
   maxTokens?: number;
+  outputFormat?: 'text' | 'json';
+  outputSchema?: JsonObject;
   mockRole?: string;
+  nodeMockOutput?: JsonObject;
   tools?: ReadonlyArray<ModelToolDefinition>;
-  toolResults?: ReadonlyArray<ModelToolResult>;
+  toolHistory?: ReadonlyArray<ModelToolRound>;
   signal?: AbortSignal;
+}
+
+export interface ModelToolRound {
+  toolCalls: ReadonlyArray<ModelToolCall>;
+  toolResults: ReadonlyArray<ModelToolResult>;
 }
 
 export interface ModelResponse {
@@ -101,9 +110,23 @@ export class ModelProviderRegistry {
   }
 }
 
-export function createDefaultModelProviderRegistry(): ModelProviderRegistry {
-  return new ModelProviderRegistry([new MockModelProvider()]);
+export function createDefaultModelProviderRegistry(
+  env: NodeJS.ProcessEnv = process.env,
+): ModelProviderRegistry {
+  // 测试必须保持确定性，不能因为本地 .env 配置了真实 Provider 而访问外部 API。
+  const configured = env.NODE_ENV === 'test' ? undefined : createOpenAICompatibleProviderFromEnv(env);
+  const providers: ModelProvider[] = [
+    new MockModelProvider(),
+    ...(configured ? [configured.provider] : []),
+  ];
+  return new ModelProviderRegistry(providers, configured ? configured.provider.id : 'mock');
 }
+
+export {
+  OpenAICompatibleProvider,
+  createOpenAICompatibleProviderFromEnv,
+  type OpenAICompatibleProviderOptions,
+} from './openai-compatible-provider.js';
 
 function defaultMockHandler(request: ModelRequest): ModelResponse {
   const input = typeof request.input === 'string' ? request.input : JSON.stringify(request.input);
@@ -118,12 +141,18 @@ function defaultMockHandler(request: ModelRequest): ModelResponse {
     const previousFix = typeof request.input === 'object' && request.input !== null && !Array.isArray(request.input)
       ? request.input.fixed
       : undefined;
+    const fixed = previousFix === true || (typeof previousFix === 'object' && previousFix !== null && !Array.isArray(previousFix));
     return {
-      content: JSON.stringify({ passed: previousFix === true, attempt: previousFix === true ? 2 : 1 }),
+      content: JSON.stringify({ passed: fixed, attempt: fixed ? 2 : 1 }),
     };
   }
+  if (request.nodeMockOutput) return { content: JSON.stringify(request.nodeMockOutput) };
   if (role === 'review') {
-    const test = request.input;
+    const input = request.input;
+    const test = typeof input === 'object' && input !== null && !Array.isArray(input) &&
+      typeof input.test === 'object' && input.test !== null && !Array.isArray(input.test)
+      ? input.test
+      : undefined;
     return {
       content: JSON.stringify({
         passed: typeof test === 'object' && test !== null && !Array.isArray(test) && test.passed === true,
@@ -131,5 +160,6 @@ function defaultMockHandler(request: ModelRequest): ModelResponse {
     };
   }
   if (role === 'fix') return { content: JSON.stringify({ fixed: true, passed: true }) };
+  if (request.outputFormat === 'json') return { content: JSON.stringify({ response: input }) };
   return { content: `Mock response: ${input}` };
 }

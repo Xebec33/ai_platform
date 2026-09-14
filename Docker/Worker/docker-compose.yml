@@ -1,0 +1,68 @@
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: Docker/Worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../后端/.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      WORKER_ENABLED: 'false'
+      SELF_DEVELOPMENT_ENABLED: 'true'
+      CODING_AGENT_IN_SANDBOX: 'true'
+      WORKSPACE_ROOT: /workspace
+      SELF_DEVELOPMENT_WORKSPACES_ROOT: /workspace/.ai-workflow-workspaces
+      SANDBOX_CONTAINER_WORKSPACE_ROOT: /workspace
+      SANDBOX_HOST_WORKSPACE_ROOT: /opt/ai-workflow-platform
+    volumes:
+      - ../../:/workspace
+      # Current Phase 13 routes execute the orchestrator in Backend, so Backend
+      # needs Docker Engine access until a dedicated Sandbox Runner is deployed.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - '127.0.0.1:3000:3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Docker/Worker/Dockerfile
+    restart: unless-stopped
+    command: ['node', '后端/dist/worker.js']
+    env_file:
+      - ../../后端/.env
+    environment:
+      NODE_ENV: production
+      WORKSPACE_ROOT: /workspace
+      SELF_DEVELOPMENT_ENABLED: 'true'
+      CODING_AGENT_IN_SANDBOX: 'true'
+    volumes:
+      - ../../:/workspace
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: Docker/前端/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8080:80'
+    depends_on:
+      backend:
+        condition: service_healthy

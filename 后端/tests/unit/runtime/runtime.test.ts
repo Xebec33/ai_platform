@@ -366,6 +366,73 @@ describe('WorkflowRuntime', () => {
     expect(result.output).toEqual({ branch: flag ? 'true' : 'false' });
   });
 
+  it('finalizes Condition and End node runs and emits completed events', async () => {
+    const persisted: Array<{ nodeId: string; status: string }> = [];
+    const events: Array<{ type: string; nodeId?: string; status?: string }> = [];
+    const result = await createWorkflowRuntime(conditionWorkflowWithAgentOutput('1'), {
+      persistence: {
+        saveWorkflow: async () => {},
+        saveRun: async () => {},
+        saveNodeRun: async (_runId, nodeRun) => persisted.push({ nodeId: nodeRun.nodeId, status: nodeRun.status }),
+        saveState: async () => {},
+        saveCheckpoint: async () => {},
+      },
+      eventSink: { emit: (event) => events.push({ type: event.type, nodeId: event.nodeId, status: event.nodeRun?.status }) },
+      agentExecutor: async ({ node }) => ({
+        output: node.id === 'source-agent' ? { decide: '1' } : { branch: node.id },
+      }),
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.nodeRuns.filter((run) => ['condition-1', 'end-1'].includes(run.nodeId))).toEqual([
+      expect.objectContaining({ nodeId: 'condition-1', status: 'SUCCESS', finishedAt: expect.any(String) }),
+      expect.objectContaining({ nodeId: 'end-1', status: 'SUCCESS', finishedAt: expect.any(String) }),
+    ]);
+    expect(persisted.filter((run) => ['condition-1', 'end-1'].includes(run.nodeId))).toEqual([
+      { nodeId: 'condition-1', status: 'RUNNING' },
+      { nodeId: 'condition-1', status: 'SUCCESS' },
+      { nodeId: 'end-1', status: 'RUNNING' },
+      { nodeId: 'end-1', status: 'SUCCESS' },
+    ]);
+    expect(events.filter((event) => ['condition-1', 'end-1'].includes(event.nodeId))).toEqual([
+      expect.objectContaining({ type: 'NODE_STARTED', nodeId: 'condition-1', status: 'RUNNING' }),
+      expect.objectContaining({ type: 'NODE_COMPLETED', nodeId: 'condition-1', status: 'SUCCESS' }),
+      expect.objectContaining({ type: 'NODE_STARTED', nodeId: 'end-1', status: 'RUNNING' }),
+      expect.objectContaining({ type: 'NODE_COMPLETED', nodeId: 'end-1', status: 'SUCCESS' }),
+    ]);
+  });
+
+  it('routes a UI condition parameter from the previous Agent output', async () => {
+    const workflow = conditionWorkflowWithAgentOutput('1');
+    const result = await createWorkflowRuntime(workflow, {
+      agentExecutor: async ({ node }) => ({
+        output: node.id === 'source-agent' ? { decide: '1' } : { branch: node.id },
+      }),
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.output).toEqual({ branch: 'true-agent' });
+    expect(result.nodeRuns.map((run) => run.nodeId)).toEqual([
+      'start-1',
+      'source-agent',
+      'condition-1',
+      'true-agent',
+      'end-1',
+    ]);
+  });
+
+  it('routes numeric Agent output without treating the comparison value as a string', async () => {
+    const workflow = conditionWorkflowWithAgentOutput('1');
+    const result = await createWorkflowRuntime(workflow, {
+      agentExecutor: async ({ node }) => ({
+        output: node.id === 'source-agent' ? { decide: 1 } : { branch: node.id },
+      }),
+    }).run();
+
+    expect(result.status).toBe('SUCCESS');
+    expect(result.output).toEqual({ branch: 'true-agent' });
+  });
+
   it('restores Loop variables before retrying a failed iteration', async () => {
     const seen: unknown[] = [];
     let secondCalls = 0;
@@ -389,6 +456,14 @@ describe('WorkflowRuntime', () => {
   });
 });
 
+function startConfig() {
+  return {
+    inputParameters: [
+      { name: 'inputs', type: 'string', required: true, system: true, description: '工作流总输入。' },
+    ],
+  };
+}
+
 function conditionWorkflow(flag: boolean): WorkflowDefinition {
   return {
     id: 'condition-demo',
@@ -396,7 +471,7 @@ function conditionWorkflow(flag: boolean): WorkflowDefinition {
     version: 1,
     variables: { flag },
     nodes: [
-      { id: 'start-1', type: 'start', name: 'Start', config: {} },
+      { id: 'start-1', type: 'start', name: 'Start', config: startConfig() },
       {
         id: 'condition-1',
         type: 'condition',
@@ -425,6 +500,38 @@ function conditionWorkflow(flag: boolean): WorkflowDefinition {
       { id: 'e5', source: 'false-agent', target: 'end-1' },
     ],
   };
+}
+
+function conditionWorkflowWithAgentOutput(comparisonValue: string): WorkflowDefinition {
+  const workflow = conditionWorkflow(false);
+  workflow.nodes.splice(1, 0, {
+    id: 'source-agent',
+    type: 'agent',
+    name: 'Source Agent',
+    config: { model: 'mock', systemPrompt: 'source' },
+  });
+  workflow.nodes = workflow.nodes.map((node) =>
+    node.id === 'condition-1'
+      ? {
+          ...node,
+          config: {
+            parameter: 'decide',
+            relation: 'equals',
+            comparisonValue,
+            expression: `decide === ${JSON.stringify(comparisonValue)}`,
+          },
+        }
+      : node,
+  );
+  workflow.edges = workflow.edges.flatMap((edge) =>
+    edge.id === 'e1'
+      ? [
+          { ...edge, target: 'source-agent' },
+          { id: 'e-source-condition', source: 'source-agent', target: 'condition-1' },
+        ]
+      : [edge],
+  );
+  return workflow;
 }
 
 function retryWorkflow(): WorkflowDefinition {
@@ -467,7 +574,7 @@ function loopWorkflow(maxIterations: number): WorkflowDefinition {
     name: 'Loop Demo',
     version: 1,
     nodes: [
-      { id: 'start-1', type: 'start', name: 'Start', config: {} },
+      { id: 'start-1', type: 'start', name: 'Start', config: startConfig() },
       {
         id: 'loop-1',
         type: 'loop',

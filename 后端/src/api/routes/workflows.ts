@@ -1,10 +1,12 @@
 import {
   validateWorkflow,
+  workflowDemos,
   type JsonObject,
   type WorkflowDefinition,
 } from '@ai-workflow/shared-types';
 import type { FastifyInstance } from 'fastify';
 import type { ToolRegistry } from '../../tools/index.js';
+import { isDatabaseConnectivityError } from '../../config/persistence.js';
 import { createMockSelfDevelopmentWorkflow } from '../../self-development/index.js';
 import type { JobQueue } from '../../queue/jobs/types.js';
 import {
@@ -35,8 +37,19 @@ export async function registerWorkflowRoutes(
     asyncRuns?: boolean;
     maxJobAttempts?: number;
     jobTimeoutMs?: number;
+    agentExecutor?: WorkflowRuntimeOptions['agentExecutor'];
   } = {},
 ): Promise<void> {
+  app.get('/workflows/demos', async (_request, reply) => {
+    return reply.send(workflowDemos);
+  });
+
+  app.get<{ Params: { demoId: string } }>('/workflows/demos/:demoId', async (request, reply) => {
+    const demo = workflowDemos.find((item) => item.id === request.params.demoId);
+    if (!demo) return reply.code(404).send({ error: 'Demo Workflow 不存在' });
+    return reply.send(demo);
+  });
+
   app.get('/workflows/mock-self-development', async (_request, reply) => {
     return reply.send(createMockSelfDevelopmentWorkflow());
   });
@@ -51,8 +64,9 @@ export async function registerWorkflowRoutes(
       await options.persistence.saveWorkflow(request.body.workflow);
       return reply.code(201).send({ workflowId: request.body.workflow.id });
     } catch (error) {
-      return reply.code(503).send({
-        error: 'Workflow 持久化失败',
+      return reply.code(isDatabaseConnectivityError(error) ? 503 : 500).send({
+        error: isDatabaseConnectivityError(error) ? '数据库暂时不可用，请稍后重试' : 'Workflow 持久化失败',
+        code: isDatabaseConnectivityError(error) ? 'DATABASE_UNAVAILABLE' : 'WORKFLOW_PERSISTENCE_FAILED',
         details: error instanceof Error ? error.message : String(error),
       });
     }
@@ -100,6 +114,7 @@ export async function registerWorkflowRoutes(
       }
       const runtimeOptions: WorkflowRuntimeOptions = {
         maxAgentRetries: 0,
+        agentExecutor: options.agentExecutor,
         persistence: options.persistence,
         runMonitor: options.monitor,
         toolRegistry: options.toolRegistry,
@@ -112,7 +127,16 @@ export async function registerWorkflowRoutes(
     } catch (error) {
       if (error instanceof WorkflowValidationError)
         return reply.code(400).send({ error: error.message, issues: error.issues });
-      throw error;
+      request.log.error(error);
+      if (isDatabaseConnectivityError(error))
+        return reply.code(503).send({
+          error: '数据库暂时不可用，请稍后重试',
+          code: 'DATABASE_UNAVAILABLE',
+        });
+      return reply.code(500).send({
+        error: 'Workflow 执行失败',
+        details: error instanceof Error ? error.message : String(error),
+      });
     }
   });
 }

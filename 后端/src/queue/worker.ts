@@ -15,8 +15,10 @@ export interface WorkflowWorkerOptions {
   agentTimeoutMs?: number;
   workflowTimeoutMs?: number;
   agentExecutor?: WorkflowRuntimeOptions['agentExecutor'];
+  agentRegistry?: WorkflowRuntimeOptions['agentRegistry'];
   toolRegistry?: WorkflowRuntimeOptions['toolRegistry'];
   workspaceRoot?: string;
+  onError?: (error: unknown) => void;
 }
 
 export class WorkflowWorker {
@@ -26,9 +28,13 @@ export class WorkflowWorker {
   private readonly pollIntervalMs: number;
   private readonly retryDelayMs: number;
   private readonly workflowTimeoutMs: number | undefined;
+  private readonly onError: (error: unknown) => void;
+  private pollInFlight = false;
+  private pollFailureCount = 0;
+  private nextPollAt = 0;
   private readonly runtimeOptions: Pick<
     WorkflowRuntimeOptions,
-    'agentTimeoutMs' | 'maxAgentRetries' | 'agentExecutor' | 'toolRegistry' | 'workspaceRoot'
+    'agentTimeoutMs' | 'maxAgentRetries' | 'agentExecutor' | 'agentRegistry' | 'toolRegistry' | 'workspaceRoot'
   >;
   private readonly active = new Map<
     string,
@@ -50,10 +56,12 @@ export class WorkflowWorker {
     this.pollIntervalMs = positiveInteger(options.pollIntervalMs ?? 250, 'pollIntervalMs');
     this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 1_000);
     this.workflowTimeoutMs = options.workflowTimeoutMs;
+    this.onError = options.onError ?? ((error) => console.error('Workflow worker error', error));
     this.runtimeOptions = {
       agentTimeoutMs: options.agentTimeoutMs,
       maxAgentRetries: options.maxAgentRetries,
       agentExecutor: options.agentExecutor,
+      agentRegistry: options.agentRegistry,
       toolRegistry: options.toolRegistry,
       workspaceRoot: options.workspaceRoot,
     };
@@ -99,15 +107,29 @@ export class WorkflowWorker {
   }
 
   private async poll(): Promise<void> {
-    if (this.stopping) return;
-    while (!this.stopping && this.active.size < this.concurrency) {
-      const job = await this.queue.claim(this.workerId, this.leaseMs);
-      if (!job) return;
-      const controller = new AbortController();
-      const promise = this.process(job, controller).finally(() => {
-        this.active.delete(job.id);
-      });
-      this.active.set(job.id, { job, controller, promise });
+    if (this.stopping || this.pollInFlight || Date.now() < this.nextPollAt) return;
+    this.pollInFlight = true;
+    try {
+      while (!this.stopping && this.active.size < this.concurrency) {
+        const job = await this.queue.claim(this.workerId, this.leaseMs);
+        this.pollFailureCount = 0;
+        if (!job) return;
+        const controller = new AbortController();
+        const promise = this.process(job, controller).finally(() => {
+          this.active.delete(job.id);
+        });
+        this.active.set(job.id, { job, controller, promise });
+      }
+    } catch (error) {
+      this.pollFailureCount += 1;
+      const backoffMs = Math.min(
+        30_000,
+        this.pollIntervalMs * 2 ** Math.min(this.pollFailureCount - 1, 7),
+      );
+      this.nextPollAt = Date.now() + Math.max(backoffMs, this.pollIntervalMs);
+      this.onError(error);
+    } finally {
+      this.pollInFlight = false;
     }
   }
 
@@ -118,20 +140,14 @@ export class WorkflowWorker {
     try {
       const workflow = await this.persistence.getWorkflow?.(job.workflowId);
       if (!workflow) {
-        await this.queue.fail(
-          job.id,
-          'Workflow 不存在：' + job.workflowId,
-          'WORKFLOW_NOT_FOUND',
-          this.workerId,
-        );
+        await this.failJob(job, 'Workflow 不存在：' + job.workflowId, 'WORKFLOW_NOT_FOUND');
         return;
       }
-      renewalTimer = setInterval(
-        () => {
-          void this.queue.renew(job.id, this.workerId, this.leaseMs);
-        },
-        Math.max(1, Math.floor(this.leaseMs / 2)),
-      );
+      renewalTimer = setInterval(() => {
+        void this.queue
+          .renew(job.id, this.workerId, this.leaseMs)
+          .catch((error) => this.onError(error));
+      }, Math.max(1, Math.floor(this.leaseMs / 2)));
       const timeoutMs = job.payload.timeoutMs;
       timeout =
         timeoutMs === undefined
@@ -152,37 +168,46 @@ export class WorkflowWorker {
         signal: controller.signal,
       });
       if (timeoutTriggered) {
-        await this.queue.fail(
-          job.id,
-          `Job 执行超时（${timeoutMs}ms）`,
-          'JOB_TIMEOUT',
-          this.workerId,
-          this.retryDelayMs,
-        );
+        await this.failJob(job, `Job 执行超时（${timeoutMs}ms）`, 'JOB_TIMEOUT');
       } else if (result.status === 'SUCCESS') {
-        await this.queue.complete(job.id, 'SUCCESS', this.workerId);
+        await this.completeJob(job, 'SUCCESS');
       } else if (result.status === 'CANCELLED') {
-        await this.queue.complete(job.id, 'CANCELLED', this.workerId);
+        await this.completeJob(job, 'CANCELLED');
       } else {
-        await this.queue.fail(
-          job.id,
+        await this.failJob(
+          job,
           result.error ?? 'Workflow 执行失败',
           result.errorCode ?? 'WORKFLOW_FAILED',
-          this.workerId,
-          this.retryDelayMs,
         );
       }
     } catch (error) {
-      await this.queue.fail(
-        job.id,
+      await this.failJob(
+        job,
         error instanceof Error ? error.message : String(error),
         'WORKER_ERROR',
-        this.workerId,
-        this.retryDelayMs,
       );
     } finally {
       if (timeout) clearTimeout(timeout);
       if (renewalTimer) clearInterval(renewalTimer);
+    }
+  }
+
+  private async completeJob(
+    job: WorkflowJob,
+    status: Extract<WorkflowJob['status'], 'SUCCESS' | 'CANCELLED'>,
+  ): Promise<void> {
+    try {
+      await this.queue.complete(job.id, status, this.workerId);
+    } catch (queueError) {
+      this.onError(queueError);
+    }
+  }
+
+  private async failJob(job: WorkflowJob, error: string, errorCode: string): Promise<void> {
+    try {
+      await this.queue.fail(job.id, error, errorCode, this.workerId, this.retryDelayMs);
+    } catch (queueError) {
+      this.onError(queueError);
     }
   }
 }

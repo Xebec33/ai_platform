@@ -1,4 +1,4 @@
-import type { WorkflowDefinition, WorkflowNode } from '@ai-workflow/shared-types';
+import type { StartConfig, WorkflowDefinition, WorkflowNode } from '@ai-workflow/shared-types';
 
 export const MOCK_SELF_DEVELOPMENT_WORKFLOW_ID = 'self-development-mock-v1';
 
@@ -11,7 +11,7 @@ export function createMockSelfDevelopmentWorkflow(
     version: 1,
     variables: { requirement },
     nodes: [
-      { id: 'start-1', type: 'start', name: 'Start', config: {} },
+      { id: 'start-1', type: 'start', name: 'Start', config: startConfig() },
       agent('requirement-analyzer', 'Requirement Analyzer', 'requirement', 'requirement'),
       agent('task-decomposer', 'Task Decomposer', 'plan', 'plan'),
       agent('frontend-agent', 'Frontend Agent', 'frontend', 'frontend'),
@@ -55,6 +55,15 @@ export function createMockSelfDevelopmentWorkflow(
       edge('edge-condition-loop', 'condition-1', 'loop-1', 'true'),
       edge('edge-condition-fix', 'condition-1', 'fix-agent', 'false'),
       edge('edge-fix-loop', 'fix-agent', 'loop-1'),
+    ],
+  };
+}
+
+function startConfig(): StartConfig {
+  return {
+    inputParameters: [
+      { name: 'inputs', type: 'string', required: true, system: true, description: '工作流总输入。' },
+      { name: 'requirement', type: 'string', required: true, description: '本次开发需求描述。' },
     ],
   };
 }

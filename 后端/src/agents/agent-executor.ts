@@ -1,6 +1,6 @@
-import type { AgentNode, JsonObject } from '@ai-workflow/shared-types';
+import type { AgentNode, JsonObject, JsonValue } from '@ai-workflow/shared-types';
 import { ToolError } from '../tools/types.js';
-import type { ModelToolResult } from './model-provider.js';
+import type { ModelToolResult, ModelToolRound } from './model-provider.js';
 import {
   agentConfigFromNode,
   AgentExecutionError,
@@ -16,6 +16,7 @@ import {
 
 export interface AgentExecutorOptions {
   providers?: ProviderRegistry;
+  environment?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   maxToolRounds?: number;
 }
@@ -25,7 +26,7 @@ export class ProviderAgentExecutor implements AgentExecutor {
   private readonly maxToolRounds: number;
 
   constructor(options: AgentExecutorOptions = {}) {
-    this.providers = options.providers ?? createDefaultModelProviderRegistry();
+    this.providers = options.providers ?? createDefaultModelProviderRegistry(options.environment);
     this.maxToolRounds = options.maxToolRounds ?? 4;
     if (!Number.isInteger(this.maxToolRounds) || this.maxToolRounds < 0)
       throw new Error('maxToolRounds 必须是非负整数');
@@ -39,18 +40,21 @@ export class ProviderAgentExecutor implements AgentExecutor {
     try {
       const provider = this.providers.resolve(config.provider, config.model);
       const tools = context.toolRegistry;
-      let toolResults: ModelToolResult[] = [];
+      let toolHistory: ModelToolRound[] = [];
       let toolCalls = 0;
       let response = await withTimeout(
         provider.complete({
           model: config.model,
-          systemPrompt: config.systemPrompt,
+          systemPrompt: systemPromptFor(config),
           input: context.input,
+          outputFormat: config.outputFormat,
+          outputSchema: config.outputSchema,
           temperature: config.temperature,
           maxTokens: config.maxTokens,
           mockRole: config.mockRole,
+          nodeMockOutput: objectValue(context.node.config.mockOutput),
           tools: tools?.list(),
-          toolResults,
+          toolHistory,
           signal: execution.signal,
         }),
         timeoutMs,
@@ -95,17 +99,20 @@ export class ProviderAgentExecutor implements AgentExecutor {
             error: result.error,
           });
         }
-        toolResults = [...toolResults, ...results];
+        toolHistory = [...toolHistory, { toolCalls: [...response.toolCalls], toolResults: results }];
         response = await withTimeout(
           provider.complete({
             model: config.model,
-            systemPrompt: config.systemPrompt,
+            systemPrompt: systemPromptFor(config),
             input: context.input,
+            outputFormat: config.outputFormat,
+            outputSchema: config.outputSchema,
             temperature: config.temperature,
             maxTokens: config.maxTokens,
             mockRole: config.mockRole,
+            nodeMockOutput: objectValue(context.node.config.mockOutput),
             tools: tools.list(),
-            toolResults,
+            toolHistory,
             signal: execution.signal,
           }),
           timeoutMs,
@@ -113,7 +120,7 @@ export class ProviderAgentExecutor implements AgentExecutor {
           execution.signal,
         );
       }
-      const output = parseOutput(response.content, config.outputSchema);
+      const output = parseOutput(response.content, config.outputSchema, config.outputFormat);
       return {
         output,
         rawText: response.content,
@@ -123,9 +130,13 @@ export class ProviderAgentExecutor implements AgentExecutor {
       };
     } catch (error) {
       if (error instanceof AgentExecutionError) throw error;
-      throw new AgentExecutionError('LLM_ERROR', `Agent ${config.id} 调用模型失败`, true, {
-        cause: error,
-      });
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new AgentExecutionError(
+        'LLM_ERROR',
+        `Agent ${config.id} 调用模型失败：${detail}`,
+        true,
+        { cause: error },
+      );
     } finally {
       execution.dispose();
     }
@@ -138,17 +149,61 @@ export function createDefaultAgentExecutor(
   return new ProviderAgentExecutor(options);
 }
 
-function parseOutput(content: string, schema: JsonObject | undefined): JsonObject {
-  if (!schema) return { response: content };
+function parseOutput(
+  content: string,
+  schema: JsonObject | undefined,
+  outputFormat: 'text' | 'json' | undefined,
+): JsonObject {
+  if (outputFormat !== 'json' && !schema) return { response: content };
   try {
-    const value: unknown = JSON.parse(content);
-    if (!isObject(value)) throw new Error('输出不是 JSON 对象');
-    return value;
+    const value = parseJsonContent(content);
+    if (isObject(value)) return value;
+    if (allowsNonObjectOutput(schema)) return { response: value as JsonValue };
+    throw new Error('输出不是 JSON 对象');
   } catch (error) {
     throw new AgentExecutionError('PARSING_ERROR', 'Agent 输出无法解析为结构化 JSON', false, {
       cause: error,
     });
   }
+}
+
+function parseJsonContent(content: string): unknown {
+  const text = content.trim();
+  const candidates = [text];
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
+  if (fenced) candidates.push(fenced.trim());
+  const embedded = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+  if (embedded?.[1]) candidates.push(embedded[1]);
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('输出不是有效 JSON');
+}
+
+function allowsNonObjectOutput(schema: JsonObject | undefined): boolean {
+  if (!schema || schema.type !== 'object') return true;
+  const properties = schema.properties;
+  return !isObject(properties) || Object.keys(properties).length === 0;
+}
+
+function systemPromptFor(config: {
+  systemPrompt: string;
+  outputFormat?: 'text' | 'json';
+  outputSchema?: JsonObject;
+}): string {
+  if (config.outputFormat !== 'json') return config.systemPrompt;
+  const properties = isObject(config.outputSchema?.properties) ? Object.keys(config.outputSchema.properties) : [];
+  const target = properties.length > 0 ? 'JSON 对象，字段为：' + properties.join('、') : '合法 JSON 值';
+  return `${config.systemPrompt}\n\n输出格式要求：只输出${target}，不要输出 Markdown 代码块、解释文字或其他前后缀。`;
+}
+
+function objectValue(value: JsonValue | undefined): JsonObject | undefined {
+  return isObject(value) ? value : undefined;
 }
 
 function isObject(value: unknown): value is JsonObject {

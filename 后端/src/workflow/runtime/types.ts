@@ -33,6 +33,7 @@ export interface WorkflowNodeRun {
   error?: string;
   errorCode?: string;
   iteration?: number;
+  usage?: AgentOutput['usage'];
 }
 
 export interface WorkflowCheckpoint {
@@ -98,6 +99,7 @@ export interface WorkflowRuntimeOptions {
   eventSink?: import('./events.js').WorkflowEventSink;
   runMonitor?: import('../../runs/run-monitor.js').RunMonitor;
   agentExecutor?: AgentExecutorLike;
+  agentRegistry?: import('../../agents/agent-registry.js').AgentRegistry;
   agentTimeoutMs?: number;
   maxAgentRetries?: number;
   runIdFactory?: () => string;

@@ -3,6 +3,7 @@ import {
   type AgentNode,
   type ConditionNode,
   type LoopNode,
+  type ToolNode,
   type JsonObject,
   type JsonValue,
   type WorkflowDefinition,
@@ -23,7 +24,11 @@ import {
 } from './types.js';
 import { type WorkflowEventSink, type WorkflowEventType, type WorkflowRunEvent } from './events.js';
 import { AgentExecutionError, createDefaultAgentExecutor } from '../../agents/index.js';
-import { evaluateLoopStopCondition, classifyLoopEdges } from './loop.js';
+import {
+  evaluateConfiguredCondition,
+  evaluateLoopStopCondition,
+  classifyLoopEdges,
+} from './loop.js';
 import type { RunMonitor } from '../../runs/run-monitor.js';
 const defaultAgentExecutor = createDefaultAgentExecutor();
 
@@ -33,6 +38,7 @@ class NoOpCheckpointStore implements CheckpointStore {
 
 export class WorkflowRuntime {
   private readonly agentExecutor: AgentExecutorLike;
+  private readonly agentRegistry?: import('../../agents/agent-registry.js').AgentRegistry;
   private readonly timeout?: number;
   private readonly retries: number;
   private readonly makeRunId: () => string;
@@ -62,6 +68,7 @@ export class WorkflowRuntime {
     if (options.workflowTimeoutMs !== undefined && options.workflowTimeoutMs <= 0)
       throw new WorkflowRuntimeError('workflowTimeoutMs 必须是正数');
     this.agentExecutor = options.agentExecutor ?? defaultAgentExecutor;
+    this.agentRegistry = options.agentRegistry;
     this.timeout = options.agentTimeoutMs;
     this.retries = options.maxAgentRetries ?? 0;
     this.makeRunId = options.runIdFactory ?? (() => 'run-' + Date.now());
@@ -83,7 +90,7 @@ export class WorkflowRuntime {
     const startedAtMs = Date.now();
     const workflowDeadlineMs =
       this.workflowTimeoutMs === undefined ? undefined : startedAtMs + this.workflowTimeoutMs;
-    const variables = clone({ ...this.workflow.variables, ...(options.variables ?? {}) });
+    const variables = clone(this.workflow.variables);
     const nodeRuns: WorkflowNodeRun[] = [];
     const outputs: Record<string, JsonObject> = {};
     const iterations: Record<string, number> = {};
@@ -98,11 +105,13 @@ export class WorkflowRuntime {
       checkpoints,
       startedAt: new Date(startedAtMs).toISOString(),
     };
-    let current = this.start();
+    let current: WorkflowNode | undefined = this.start();
     let lastOutput: JsonObject | undefined;
     let active: WorkflowNodeRun | undefined;
     this.runMonitor?.register(result);
     try {
+      restoreJsonObject(variables, this.buildInitialVariables(options.variables ?? {}));
+      result.variables = variables;
       await this.persistWorkflowState(result, current.id, outputs);
       this.emitEvent(result, 'RUN_STARTED', { currentNode: current.id });
       for (let index = 0; ; index += 1) {
@@ -214,17 +223,31 @@ export class WorkflowRuntime {
           lastOutput = output;
           const key = current.outputKey ?? current.config.outputKey;
           if (key) variables[key] = output;
+          result.variables = variables;
           current = this.next(current.id);
         } else if (current.type === 'end') {
           run.input = lastOutput ?? variables;
           run.attempts = 1;
           run.status = 'SUCCESS';
-          run.finishedAt = new Date().toISOString();
           result.output = lastOutput ?? variables;
-          break;
+          current = undefined;
         } else if (current.type === 'condition') {
+          run.input = variables;
           current = this.conditionNode(current, variables, outputs);
           run.attempts = 1;
+          run.status = 'SUCCESS';
+        } else if (current.type === 'tool') {
+          const output = await this.tool(current, variables, outputs, options.signal);
+          run.input = current.config.input ?? variables;
+          run.output = output;
+          run.attempts = 1;
+          run.status = 'SUCCESS';
+          outputs[current.id] = output;
+          lastOutput = output;
+          const key = current.outputKey ?? current.config.outputKey;
+          if (key) variables[key] = output;
+          result.variables = variables;
+          current = this.next(current.id);
         } else throw new WorkflowRuntimeError('暂不支持执行当前节点');
         run.finishedAt = new Date().toISOString();
         await this.persistNodeRun(result.id, run, result);
@@ -235,6 +258,7 @@ export class WorkflowRuntime {
           currentNode: current?.id,
         });
         active = undefined;
+        if (!current) break;
       }
       result.status = 'SUCCESS';
       result.finishedAt = new Date().toISOString();
@@ -520,10 +544,24 @@ export class WorkflowRuntime {
           lastOutput = output;
           const key = current.outputKey ?? current.config.outputKey;
           if (key) variables[key] = output;
+          result.variables = variables;
           current = this.next(current.id);
         } else if (current.type === 'condition') {
+          run.input = variables;
           current = this.conditionNode(current, variables, outputs);
           run.attempts = 1;
+          run.status = 'SUCCESS';
+        } else if (current.type === 'tool') {
+          const output = await this.tool(current, variables, outputs, signal);
+          run.input = current.config.input ?? variables;
+          run.output = output;
+          run.attempts = 1;
+          outputs[current.id] = output;
+          lastOutput = output;
+          const key = current.outputKey ?? current.config.outputKey;
+          if (key) variables[key] = output;
+          result.variables = variables;
+          current = this.next(current.id);
         } else if (current.type === 'start' || current.type === 'end') {
           throw new WorkflowRuntimeError(
             'Loop body 不允许出现 ' + current.type + ' 节点',
@@ -566,6 +604,22 @@ export class WorkflowRuntime {
       if (current) visited.add(current.id);
     }
     return { lastOutput };
+  }
+
+  private buildInitialVariables(provided: JsonObject): JsonObject {
+    const variables = clone(this.workflow.variables);
+    for (const input of this.workflow.inputs ?? []) {
+      if (provided[input.name] !== undefined) continue;
+      if (input.defaultValue !== undefined) variables[input.name] = cloneValue(input.defaultValue);
+      else if (input.required) throw new WorkflowRuntimeError(
+        `缺少必填输入变量：${input.name}`,
+        'MISSING_INPUT_VARIABLE',
+      );
+    }
+    for (const [key, value] of Object.entries(provided)) {
+      if (value !== undefined) variables[key] = cloneValue(value);
+    }
+    return variables;
   }
 
   private start(): WorkflowNode {
@@ -616,10 +670,8 @@ export class WorkflowRuntime {
           toolRegistry,
           workspaceRoot,
         };
-        const promise =
-          typeof this.agentExecutor === 'function'
-            ? this.agentExecutor(context)
-            : this.agentExecutor.execute(context);
+        const executor = this.resolveAgentExecutor(node);
+        const promise = typeof executor === 'function' ? executor(context) : executor.execute(context);
         const value = await waitForAgent(
           promise,
           this.timeout,
@@ -629,6 +681,7 @@ export class WorkflowRuntime {
           execution.controller,
         );
         if (!isObject(value.output)) throw new WorkflowRuntimeError('Agent 输出必须是对象');
+        if (value.usage) run.usage = value.usage;
         return clone(value.output);
       } catch (error) {
         if (isExecutionControlError(error)) throw error;
@@ -640,25 +693,72 @@ export class WorkflowRuntime {
     throw last instanceof Error ? last : new WorkflowRuntimeError('Agent 执行失败');
   }
 
+  private resolveAgentExecutor(node: AgentNode): AgentExecutorLike {
+    const executorId = typeof node.config.executorId === 'string' ? node.config.executorId : undefined;
+    const registered = executorId ? this.agentRegistry?.resolve(executorId) : undefined;
+    if (executorId && !registered)
+      throw new WorkflowRuntimeError('Agent Executor 不存在：' + executorId, 'AGENT_NOT_FOUND');
+    return registered ?? this.agentExecutor;
+  }
+
+  private async tool(
+    node: ToolNode,
+    variables: JsonObject,
+    outputs: Readonly<Record<string, JsonObject>>,
+    signal?: AbortSignal,
+  ): Promise<JsonObject> {
+    if (!this.toolRegistry)
+      throw new WorkflowRuntimeError('Tool 节点未配置 Tool Registry', 'TOOL_REGISTRY_NOT_CONFIGURED');
+    const toolName = typeof node.config.toolName === 'string' ? node.config.toolName : '';
+    if (!toolName) throw new WorkflowRuntimeError('Tool 节点缺少 toolName', 'TOOL_CONFIG_ERROR');
+    const rawInput = node.config.input ?? variables;
+    const input = resolveInput(rawInput, variables, outputs);
+    if (!isObject(input)) throw new WorkflowRuntimeError('Tool 输入参数必须是对象', 'TOOL_CONFIG_ERROR');
+    const result = await this.toolRegistry.execute(toolName, input, {
+      workspaceRoot: this.workspaceRoot ?? process.cwd(),
+      signal,
+    });
+    if (!result.ok)
+      throw new WorkflowRuntimeError(
+        result.error?.message ?? `Tool 执行失败：${toolName}`,
+        result.error?.code ?? 'TOOL_ERROR',
+      );
+    return result.output ?? {};
+  }
+
   private conditionNode(
     node: ConditionNode,
     variables: JsonObject,
     outputs: Readonly<Record<string, JsonObject>>,
   ): WorkflowNode {
-    const decision = evaluateLoopStopCondition(node.config.expression, {
-      variables,
-      nodeOutputs: outputs,
-    });
-    if (decision.error)
-      throw new WorkflowRuntimeError(
-        'Condition expression 执行失败: ' + decision.error,
-        'CONDITION_EVAL_ERROR',
-      );
+    const state = { variables, nodeOutputs: outputs };
+    const parameter = typeof node.config.parameter === 'string' ? node.config.parameter.trim() : '';
+    const relation = typeof node.config.relation === 'string' ? node.config.relation : '';
+    let isTrue: boolean;
+    if (parameter && relation) {
+      try {
+        isTrue = evaluateConfiguredCondition(parameter, relation, node.config.comparisonValue, state);
+      } catch (error) {
+        throw new WorkflowRuntimeError(
+          'Condition 配置执行失败: ' + (error instanceof Error ? error.message : String(error)),
+          'CONDITION_EVAL_ERROR',
+        );
+      }
+    } else {
+      const decision = evaluateLoopStopCondition(node.config.expression, state);
+      if (decision.error)
+        throw new WorkflowRuntimeError(
+          'Condition expression 执行失败: ' + decision.error,
+          'CONDITION_EVAL_ERROR',
+        );
+      isTrue = decision.stop;
+    }
     const edges = this.workflow.edges.filter((edge) => edge.source === node.id);
-    const label = decision.stop ? 'true' : 'false';
+    const label = isTrue ? 'true' : 'false';
+    const labeledEdges = edges.filter((item) => item.condition?.trim().toLowerCase() === 'true' || item.condition?.trim().toLowerCase() === 'false');
     const edge =
       edges.find((item) => item.condition?.trim().toLowerCase() === label) ??
-      edges[decision.stop ? 0 : 1];
+      (labeledEdges.length === 0 ? edges[isTrue ? 0 : 1] : undefined);
     if (!edge) throw new WorkflowRuntimeError('Condition 缺少分支出边：' + node.id);
     return this.node(edge.target);
   }
@@ -737,7 +837,7 @@ function inputOf(
   outputs: Readonly<Record<string, JsonObject>>,
 ): JsonValue {
   if (node.input) return resolveInput(node.input, variables, outputs);
-  if (typeof node.config.input === 'string')
+  if (node.config.input !== undefined)
     return resolveInput(node.config.input, variables, outputs);
   return variables;
 }
@@ -795,6 +895,9 @@ function currentIteration(result: WorkflowRunResult): number | undefined {
 }
 function clone(value: JsonObject): JsonObject {
   return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+function cloneValue(value: JsonValue): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 function cloneOutputs(value: Readonly<Record<string, JsonObject>>): Record<string, JsonObject> {
   return JSON.parse(JSON.stringify(value)) as Record<string, JsonObject>;

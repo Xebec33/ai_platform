@@ -14,5 +14,8 @@
     "@vue-flow/core": "^1.48.2",
     "pinia": "^2.3.0",
     "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.14.5"
   }
 }

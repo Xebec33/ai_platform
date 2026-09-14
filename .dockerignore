@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!.env.example
+.git
+.git/**
+.ai-workflow-workspaces
+coverage
+.vite
+.DS_Store
+开源参考

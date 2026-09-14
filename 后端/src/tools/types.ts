@@ -66,6 +66,13 @@ export function optionalString(input: JsonObject, key: string): string | undefin
   return value;
 }
 
+export function optionalBoolean(input: JsonObject, key: string): boolean | undefined {
+  const value = input[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new ToolError('INVALID_INPUT', `Tool 参数 ${key} 必须是布尔值`);
+  return value;
+}
+
 export function optionalPositiveInteger(input: JsonObject, key: string): number | undefined {
   const value = input[key];
   if (value === undefined) return undefined;

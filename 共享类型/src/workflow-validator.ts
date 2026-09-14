@@ -3,6 +3,8 @@ import {
   WORKFLOW_NODE_TYPES,
   type AgentConfig,
   type ConditionConfig,
+  type ToolConfig,
+  type WorkflowInputDefinition,
   type JsonObject,
   type LoopConfig,
   type WorkflowDefinition,
@@ -17,9 +19,12 @@ export type ValidationCode =
   | 'INVALID_NODES'
   | 'INVALID_EDGES'
   | 'INVALID_VARIABLES'
+  | 'INVALID_INPUTS'
+  | 'INVALID_INPUT_DEFINITION'
   | 'MISSING_START'
   | 'MULTIPLE_START'
   | 'MISSING_END'
+  | 'MULTIPLE_END'
   | 'DUPLICATE_NODE_ID'
   | 'DUPLICATE_EDGE_ID'
   | 'UNKNOWN_NODE_TYPE'
@@ -28,6 +33,7 @@ export type ValidationCode =
   | 'INVALID_NODE_CONFIG'
   | 'INVALID_AGENT_CONFIG'
   | 'INVALID_CONDITION_CONFIG'
+  | 'INVALID_TOOL_CONFIG'
   | 'INVALID_LOOP_CONFIG'
   | 'UNREACHABLE_NODE'
   | 'UNTERMINATED_NODE'
@@ -58,6 +64,7 @@ export function validateWorkflow(value: unknown): ValidationResult {
   if (!Array.isArray(workflow.edges)) add(issues, 'INVALID_EDGES', 'edges 必须是数组', '$.edges');
   if (!isRecord(workflow.variables))
     add(issues, 'INVALID_VARIABLES', 'variables 必须是对象', '$.variables');
+  validateInputs(workflow.inputs, issues);
   if (!Array.isArray(workflow.nodes) || !Array.isArray(workflow.edges)) return result(issues);
   const nodeIds = new Set<string>();
   const edgeIds = new Set<string>();
@@ -87,6 +94,7 @@ export function validateWorkflow(value: unknown): ValidationResult {
   if (starts === 0) add(issues, 'MISSING_START', 'Workflow 至少需要一个 Start 节点', '$.nodes');
   if (starts > 1) add(issues, 'MULTIPLE_START', 'Workflow 只能有一个 Start 节点', '$.nodes');
   if (ends === 0) add(issues, 'MISSING_END', 'Workflow 至少需要一个 End 节点', '$.nodes');
+  if (ends > 1) add(issues, 'MULTIPLE_END', 'Workflow 只能有一个 End 节点，所有分支必须汇聚到该节点', '$.nodes');
 
   workflow.edges.forEach((edge, index) => {
     const path = '$.edges[' + index + ']';
@@ -162,11 +170,44 @@ export function validateWorkflow(value: unknown): ValidationResult {
   return result(issues);
 }
 
+function validateInputs(value: unknown, issues: ValidationIssue[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    add(issues, 'INVALID_INPUTS', 'inputs 必须是数组', '$.inputs');
+    return;
+  }
+  const names = new Set<string>();
+  value.forEach((item, index) => {
+    const path = '$.inputs[' + index + ']';
+    if (!isRecord(item)) {
+      add(issues, 'INVALID_INPUT_DEFINITION', '输入变量定义必须是对象', path);
+      return;
+    }
+    const input = item as WorkflowInputDefinition;
+    if (!nonEmpty(input.name) || !/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(input.name))
+      add(issues, 'INVALID_INPUT_DEFINITION', '输入变量 name 必须是合法标识符', path + '.name');
+    if (names.has(input.name))
+      add(issues, 'INVALID_INPUT_DEFINITION', '输入变量 name 重复：' + input.name, path + '.name');
+    names.add(input.name);
+    if (!['string', 'number', 'boolean', 'object', 'array'].includes(input.type))
+      add(issues, 'INVALID_INPUT_DEFINITION', '输入变量 type 不受支持', path + '.type');
+    if (input.required !== undefined && typeof input.required !== 'boolean')
+      add(issues, 'INVALID_INPUT_DEFINITION', '输入变量 required 必须是布尔值', path + '.required');
+  });
+}
+
 function validateConfig(node: WorkflowNode, path: string, issues: ValidationIssue[]): void {
   if (!isRecord(node.config)) {
     add(issues, 'INVALID_NODE_CONFIG', 'config 必须是对象', path);
     if (node.type === 'loop') add(issues, 'INVALID_LOOP_CONFIG', 'Loop config 必须是对象', path);
     return;
+  }
+  if (node.type === 'start') {
+    const parameters = (node.config as { inputParameters?: unknown }).inputParameters;
+    if (!Array.isArray(parameters))
+      add(issues, 'INVALID_NODE_CONFIG', 'Start 必须配置 inputParameters 参数列表', path);
+    else if (!parameters.some((item) => isRecord(item) && item.name === 'inputs' && item.system === true))
+      add(issues, 'INVALID_NODE_CONFIG', 'Start 必须包含系统参数 inputs（必填 string）', path);
   }
   if (node.type === 'agent') {
     const config = node.config as AgentConfig;
@@ -182,9 +223,19 @@ function validateConfig(node: WorkflowNode, path: string, issues: ValidationIssu
       (!Number.isInteger(config.maxTokens) || config.maxTokens <= 0)
     )
       add(issues, 'INVALID_AGENT_CONFIG', 'maxTokens 必须是正整数', path);
+    if (config.outputFormat !== undefined && config.outputFormat !== 'text' && config.outputFormat !== 'json')
+      add(issues, 'INVALID_AGENT_CONFIG', 'outputFormat 必须是 text 或 json', path);
+    if (config.outputFields !== undefined && !Array.isArray(config.outputFields))
+      add(issues, 'INVALID_AGENT_CONFIG', 'outputFields 必须是数组', path);
   }
   if (node.type === 'condition' && !nonEmpty((node.config as ConditionConfig).expression))
     add(issues, 'INVALID_CONDITION_CONFIG', 'Condition 必须配置非空 expression', path);
+  if (node.type === 'tool') {
+    const config = node.config as ToolConfig;
+    if (!nonEmpty(config.toolName)) add(issues, 'INVALID_TOOL_CONFIG', 'Tool 必须配置 toolName', path);
+    if (config.input !== undefined && !isRecord(config.input))
+      add(issues, 'INVALID_TOOL_CONFIG', 'Tool input 必须是对象', path);
+  }
   if (node.type === 'loop') {
     const config = node.config as LoopConfig;
     if (

@@ -1,17 +1,50 @@
 import { Position } from '@vue-flow/core';
+import type { JsonObject, WorkflowInputDefinition } from '@ai-workflow/shared-types';
 export const WORKFLOW_GRAPH_VERSION = 1 as const;
-export const WORKFLOW_NODE_TYPES = ['start', 'agent', 'condition', 'end'] as const;
+export const WORKFLOW_NODE_TYPES = ['start', 'agent', 'condition', 'tool', 'loop', 'end'] as const;
 export type WorkflowNodeType = (typeof WORKFLOW_NODE_TYPES)[number];
+export interface AgentOutputFieldConfig {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+}
 export interface AgentNodeConfig {
   model: string;
   systemPrompt: string;
+  outputFormat: 'text' | 'json';
+  outputFields: AgentOutputFieldConfig[];
   temperature: number;
   maxTokens: number;
 }
 export interface ConditionNodeConfig {
   expression: string;
+  parameter: string;
+  relation: 'equals' | 'not_equals' | 'greater_than' | 'greater_or_equal' | 'less_than' | 'less_or_equal';
+  comparisonValue: string;
   trueLabel: string;
   falseLabel: string;
+}
+export interface StartParameterConfig {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  value?: unknown;
+  required?: boolean;
+  description: string;
+  system?: boolean;
+}
+export interface ToolNodeConfig {
+  toolName: string;
+  input: Record<string, unknown>;
+  inputDescriptions: Record<string, string>;
+  outputKey: string;
+  outputKeyDescription: string;
+}
+export interface LoopNodeConfig {
+  maxIterations: number;
+  stopCondition: string;
+  retry: number;
+  timeout: number;
+  bodyNodeId: string;
+  exitNodeId: string;
 }
 export type WorkflowNodeConfig = Record<string, unknown>;
 export interface WorkflowNodeData {
@@ -38,6 +71,8 @@ export interface WorkflowGraph {
   version: typeof WORKFLOW_GRAPH_VERSION;
   nodes: WorkflowGraphNode[];
   edges: WorkflowGraphEdge[];
+  variables: JsonObject;
+  inputs: WorkflowInputDefinition[];
 }
 export type WorkflowGraphValidationCode =
   | 'INVALID_ROOT'
@@ -45,6 +80,7 @@ export type WorkflowGraphValidationCode =
   | 'MISSING_START'
   | 'MULTIPLE_START_NODES'
   | 'MISSING_END'
+  | 'MULTIPLE_END_NODES'
   | 'DUPLICATE_NODE_ID'
   | 'DUPLICATE_EDGE_ID'
   | 'UNKNOWN_NODE_TYPE'
@@ -62,21 +98,65 @@ export interface WorkflowGraphValidationResult {
 const agentConfig: AgentNodeConfig = {
   model: 'gpt-4o-mini',
   systemPrompt: 'You are a helpful workflow agent.',
+  outputFormat: 'text',
+  outputFields: [],
   temperature: 0.7,
   maxTokens: 2048,
 };
 const conditionConfig: ConditionNodeConfig = {
-  expression: 'input.approved === true',
-  trueLabel: 'Yes',
-  falseLabel: 'No',
+  expression: 'variables.approved === true',
+  parameter: 'variables.approved',
+  relation: 'equals',
+  comparisonValue: 'true',
+  trueLabel: '满足条件',
+  falseLabel: '不满足条件',
+};
+const toolConfig: ToolNodeConfig = {
+  toolName: 'file_read',
+  input: { path: '' },
+  inputDescriptions: { path: '工具输入参数的值或变量表达式。' },
+  outputKey: '',
+  outputKeyDescription: '工具输出写入的变量名称。',
+};
+const loopConfig: LoopNodeConfig = {
+  maxIterations: 3,
+  stopCondition: 'variables.review.passed == true',
+  retry: 0,
+  timeout: 0,
+  bodyNodeId: '',
+  exitNodeId: '',
 };
 export function createWorkflowGraphNode(
   type: WorkflowNodeType,
   id: string,
   position: { x: number; y: number },
 ): WorkflowGraphNode {
-  const config =
-    type === 'agent' ? { ...agentConfig } : type === 'condition' ? { ...conditionConfig } : {};
+    const config =
+    type === 'start'
+      ? {
+          inputParameters: [
+            {
+              name: 'inputs',
+              type: 'string',
+              required: true,
+              system: true,
+              description: '工作流总输入，由运行请求提供。',
+            },
+          ],
+        }
+      : type === 'agent'
+      ? { ...agentConfig, outputFields: [] }
+      : type === 'condition'
+        ? { ...conditionConfig }
+        : type === 'tool'
+          ? {
+              ...toolConfig,
+              input: { ...toolConfig.input },
+              inputDescriptions: { ...toolConfig.inputDescriptions },
+            }
+          : type === 'loop'
+            ? { ...loopConfig }
+            : {};
   return {
     id,
     type,
@@ -89,6 +169,8 @@ export function createDefaultWorkflowGraph(): WorkflowGraph {
     id: 'workflow-1',
     name: 'Untitled workflow',
     version: 1,
+    variables: {},
+    inputs: [],
     nodes: [
       createWorkflowGraphNode('start', 'start-1', { x: 80, y: 180 }),
       createWorkflowGraphNode('agent', 'agent-1', { x: 330, y: 180 }),
@@ -107,10 +189,10 @@ export function graphToVueFlow(graph: WorkflowGraph) {
       type: n.type,
       position: { ...n.position },
       data: { label: n.data.label, config: { ...n.data.config } },
-      sourcePosition: Position.Bottom,
-      targetPosition: Position.Top,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       draggable: true,
-      deletable: true,
+      deletable: n.type !== 'start' && n.type !== 'end',
     })),
     edges: graph.edges.map((e) => ({
       id: e.id,
@@ -140,12 +222,18 @@ export function vueFlowToGraph(
     targetHandle?: string | null;
     label?: string;
   }[],
-  metadata: Pick<WorkflowGraph, 'id' | 'name'> = { id: 'workflow-1', name: 'Untitled workflow' },
+  metadata: Pick<WorkflowGraph, 'id' | 'name'> &
+    Partial<Pick<WorkflowGraph, 'variables' | 'inputs'>> = {
+    id: 'workflow-1',
+    name: 'Untitled workflow',
+  },
 ): WorkflowGraph {
   return {
     id: metadata.id,
     name: metadata.name,
     version: 1,
+    variables: cloneJsonObject(metadata.variables ?? {}),
+    inputs: cloneInputDefinitions(metadata.inputs ?? []),
     nodes: nodes.map((n) => ({
       id: n.id,
       type: isNodeType(n.type) ? n.type : 'agent',
@@ -237,6 +325,12 @@ export function validateWorkflowGraph(value: unknown): WorkflowGraphValidationRe
       message: 'Workflow Graph 至少需要一个 End 节点',
       path: '$.nodes',
     });
+  if (ends > 1)
+    issues.push({
+      code: 'MULTIPLE_END_NODES',
+      message: 'Workflow Graph 只能有一个 End 节点，所有分支必须汇聚到该节点',
+      path: '$.nodes',
+    });
   const edgeIds = new Set<string>();
   edges.forEach((edge, i) => {
     if (!isRecord(edge)) {
@@ -274,6 +368,8 @@ function parseGraph(value: unknown): WorkflowGraph {
     id: typeof value.id === 'string' ? value.id : '',
     name: typeof value.name === 'string' ? value.name : '',
     version: value.version === 1 ? 1 : (0 as never),
+    variables: isRecord(value.variables) ? cloneJsonObject(value.variables) : {},
+    inputs: Array.isArray(value.inputs) ? value.inputs.map(parseInput) : [],
     nodes: Array.isArray(value.nodes) ? value.nodes.map(parseNode) : [],
     edges: Array.isArray(value.edges) ? value.edges.map(parseEdge) : [],
   };
@@ -300,6 +396,19 @@ function parseNode(value: unknown, i: number): WorkflowGraphNode {
     },
   };
 }
+function parseInput(value: unknown, i: number): WorkflowInputDefinition {
+  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.type !== 'string')
+    throw new Error('Workflow JSON 输入变量 ' + i + ' 无效');
+  return {
+    name: value.name,
+    type: value.type as WorkflowInputDefinition['type'],
+    ...(typeof value.label === 'string' ? { label: value.label } : {}),
+    ...(typeof value.required === 'boolean' ? { required: value.required } : {}),
+    ...(typeof value.description === 'string' ? { description: value.description } : {}),
+    ...(value.defaultValue !== undefined ? { defaultValue: value.defaultValue as never } : {}),
+  };
+}
+
 function parseEdge(value: unknown, i: number): WorkflowGraphEdge {
   if (!isRecord(value)) throw new Error('Workflow JSON 边 ' + i + ' 无效');
   return {
@@ -313,6 +422,12 @@ function parseEdge(value: unknown, i: number): WorkflowGraphEdge {
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function cloneJsonObject(value: Record<string, unknown>): JsonObject {
+  return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+function cloneInputDefinitions(value: readonly WorkflowInputDefinition[]): WorkflowInputDefinition[] {
+  return JSON.parse(JSON.stringify(value)) as WorkflowInputDefinition[];
 }
 function isNodeType(value: unknown): value is WorkflowNodeType {
   return typeof value === 'string' && (WORKFLOW_NODE_TYPES as readonly string[]).includes(value);
