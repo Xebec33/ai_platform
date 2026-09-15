@@ -47,6 +47,14 @@ const tools = [
   { name: 'http_request', label: 'HTTP 请求', hint: '访问允许的 HTTP 服务' },
   { name: 'search', label: '内容搜索', hint: '搜索 workspace 文本内容' },
 ];
+const toolOutputFields: Record<string, string[]> = {
+  file_read: ['path', 'encoding', 'content', 'bytes'],
+  file_write: ['path', 'bytes', 'written'],
+  shell: ['command', 'cwd', 'stdout', 'stderr', 'exitCode', 'signal', 'timedOut', 'outputLimitExceeded'],
+  git: ['operation', 'stdout', 'stderr', 'exitCode', 'signal', 'timedOut'],
+  http_request: ['url', 'status', 'statusText', 'headers', 'body'],
+  search: ['query', 'path', 'matches', 'truncated'],
+};
 const outputTypes = ['string', 'number', 'boolean', 'object', 'array'];
 const missingRequiredInputs = computed(() =>
   store.graph.inputs
@@ -124,6 +132,51 @@ const toolInputDescriptions = computed(() =>
     ? selectedConfig.value.inputDescriptions
     : {}) as Record<string, string>,
 );
+const upstreamParamGroups = computed<Array<{ label: string; options: Array<{ value: string; label: string }> }>>(() => {
+  if (store.selectedNode?.type !== 'tool') return [];
+  const toolId = store.selectedNode.id;
+  const upstream = new Set<string>();
+  const queue = [toolId];
+  while (queue.length) {
+    const id = queue.shift();
+    if (!id) break;
+    for (const edge of store.edges) {
+      if (edge.target === id && edge.source !== toolId && !upstream.has(edge.source)) {
+        upstream.add(edge.source);
+        queue.push(edge.source);
+      }
+    }
+  }
+  const groups: Array<{ label: string; options: Array<{ value: string; label: string }> }> = [];
+  for (const node of store.nodes) {
+    if (!upstream.has(node.id)) continue;
+    const options: Array<{ value: string; label: string }> = [];
+    if (node.type === 'start') {
+      const parameters = Array.isArray(node.data.config.inputParameters)
+        ? (node.data.config.inputParameters as Array<{ name?: unknown; system?: unknown }>)
+        : [];
+      for (const parameter of parameters) {
+        if (typeof parameter.name !== 'string' || !parameter.name || parameter.system) continue;
+        options.push({ value: '{{variables.' + parameter.name + '}}', label: parameter.name });
+      }
+    } else if (node.type === 'agent') {
+      const fields = Array.isArray(node.data.config.outputFields)
+        ? (node.data.config.outputFields as Array<{ name?: unknown; description?: unknown }>)
+        : [];
+      for (const field of fields) {
+        if (typeof field.name !== 'string' || !field.name) continue;
+        const description = typeof field.description === 'string' && field.description ? '（' + field.description + '）' : '';
+        options.push({ value: '{{nodes.' + node.id + '.' + field.name + '}}', label: field.name + description });
+      }
+    } else if (node.type === 'tool') {
+      const fields = toolOutputFields[String(node.data.config.toolName ?? '')] ?? [];
+      for (const field of fields) options.push({ value: '{{nodes.' + node.id + '.' + field + '}}', label: field });
+    }
+    if (options.length) groups.push({ label: (node.data.label || node.id) + '（' + node.id + '）', options });
+  }
+  return groups;
+});
+const upstreamParamValues = computed(() => new Set(upstreamParamGroups.value.flatMap((group) => group.options.map((option) => option.value))));
 function updateToolEntryDescription(key: string, value: string): void {
   const descriptions = { ...toolInputDescriptions.value, [key]: value };
   store.updateSelectedConfig('inputDescriptions', descriptions);
@@ -248,7 +301,7 @@ async function runCurrentWorkflow(): Promise<void> {
             <label>参数<input :value="String(selectedConfig.parameter ?? '')" placeholder="variables.approved" @input="store.updateSelectedConfig('parameter', ($event.target as HTMLInputElement).value)" /></label><label>条件关系<select :value="String(selectedConfig.relation ?? 'equals')" @change="store.updateSelectedConfig('relation', ($event.target as HTMLSelectElement).value)"><option v-for="relation in relations" :key="relation.value" :value="relation.value">{{ relation.label }}</option></select></label><label>比较值<input :value="String(selectedConfig.comparisonValue ?? '')" @input="store.updateSelectedConfig('comparisonValue', ($event.target as HTMLInputElement).value)" /></label><p class="config-hint">下方两个输出点分别代表“满足”和“不满足”。</p>
           </template>
           <template v-else-if="selectedType === 'tool'">
-            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><label>输出参数描述<input :value="String(selectedConfig.outputKeyDescription ?? '')" placeholder="工具输出结果的含义（可选）" @input="store.updateSelectedConfig('outputKeyDescription', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="param-item"><div class="field-row"><input class="field-key-input" :value="key" spellcheck="false" aria-label="参数名" @change="renameToolInput(key, $event.target as HTMLInputElement)" /><input :value="String(value ?? '')" @input="updateToolEntry(key, ($event.target as HTMLInputElement).value)" /><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div><input class="param-description" :value="toolInputDescriptions[key] ?? ''" placeholder="描述（该输入参数的含义）" @input="updateToolEntryDescription(key, ($event.target as HTMLInputElement).value)" /></div></div>
+            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><label>输出参数描述<input :value="String(selectedConfig.outputKeyDescription ?? '')" placeholder="工具输出结果的含义（可选）" @input="store.updateSelectedConfig('outputKeyDescription', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="param-item"><div class="field-row field-row--tool"><input class="field-key-input" :value="key" spellcheck="false" aria-label="参数名" @change="renameToolInput(key, $event.target as HTMLInputElement)" /><select :value="String(value ?? '')" @change="updateToolEntry(key, ($event.target as HTMLSelectElement).value)"><option value="">选择上游参数</option><option v-if="String(value ?? '') && !upstreamParamValues.has(String(value ?? ''))" :value="String(value ?? '')">{{ String(value) }}（当前值）</option><optgroup v-for="group in upstreamParamGroups" :key="group.label" :label="group.label"><option v-for="option in group.options" :key="option.value" :value="option.value">{{ option.label }}</option></optgroup></select><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div><input class="param-description" :value="toolInputDescriptions[key] ?? ''" placeholder="描述（该输入参数的含义）" @input="updateToolEntryDescription(key, ($event.target as HTMLInputElement).value)" /></div><p v-if="upstreamParamGroups.length === 0" class="config-hint">暂无上游参数可继承，请先将上游节点连接到本工具节点。</p></div>
           </template>
           <template v-else-if="selectedType === 'loop'">
             <label>最大迭代次数<input type="number" min="1" step="1" :value="Number(selectedConfig.maxIterations ?? 3)" @input="updateNumber('maxIterations', $event)" /></label>

@@ -520,6 +520,10 @@ h1 {
   color: #aab7d8;
 }
 
+.field-row--tool {
+  grid-template-columns: minmax(72px, 0.7fr) minmax(0, 1.5fr) 24px;
+}
+
 .param-item {
   display: grid;
   gap: 5px;
