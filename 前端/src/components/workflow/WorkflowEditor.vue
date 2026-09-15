@@ -5,7 +5,7 @@ import { uiGraphToWorkflow, workflowToUiGraph, type WorkflowDefinition } from '@
 import WorkflowNode from '../nodes/WorkflowNode.vue';
 import { serializeWorkflowGraph, type WorkflowNodeType } from '../../editor/workflow-graph';
 import { apiFetch } from '../../api/client';
-import { listWorkflowDemos, runWorkflow } from '../../api/workflows';
+import { fetchWorkflow, listSavedWorkflows, listWorkflowDemos, runWorkflow, type SavedWorkflowSummary } from '../../api/workflows';
 import { useWorkflowEditorStore } from '../../stores/workflow-editor';
 
 const emit = defineEmits<{ runStarted: [runId: string] }>();
@@ -63,6 +63,10 @@ const missingRequiredInputs = computed(() =>
     .map((input) => input.label ?? input.name),
 );
 const showMissingInputsModal = ref(false);
+const showLoadModal = ref(false);
+const savedWorkflows = ref<SavedWorkflowSummary[]>([]);
+const loadingSaved = ref(false);
+const loadingWorkflowId = ref('');
 const relations = [
   { value: 'equals', label: '等于' },
   { value: 'not_equals', label: '不等于' },
@@ -81,6 +85,12 @@ onMounted(async () => {
   }
 });
 async function loadDemo(): Promise<void> {
+  if (!selectedDemoId.value) {
+    store.newProject();
+    await nextTick();
+    await fitView({ padding: 0.2, duration: 300 });
+    return;
+  }
   const demo = demos.value.find((item) => item.id === selectedDemoId.value);
   if (!demo) return;
   try {
@@ -128,6 +138,36 @@ function goToStartInputs(): void {
   if (start) store.selectNode(start.id);
 }
 
+async function openLoadModal(): Promise<void> {
+  showLoadModal.value = true;
+  loadingSaved.value = true;
+  store.error = '';
+  try {
+    savedWorkflows.value = await listSavedWorkflows();
+  } catch (cause) {
+    store.error = cause instanceof Error ? cause.message : '读取已保存 Workflow 失败';
+    showLoadModal.value = false;
+  } finally {
+    loadingSaved.value = false;
+  }
+}
+
+async function loadSavedWorkflow(workflowId: string): Promise<void> {
+  if (loadingWorkflowId.value) return;
+  loadingWorkflowId.value = workflowId;
+  try {
+    const workflow = await fetchWorkflow(workflowId);
+    store.loadJson(JSON.stringify(workflowToUiGraph(workflow)));
+    showLoadModal.value = false;
+    await nextTick();
+    await fitView({ padding: 0.2, duration: 300 });
+  } catch (cause) {
+    store.error = cause instanceof Error ? cause.message : 'Workflow 加载失败';
+  } finally {
+    loadingWorkflowId.value = '';
+  }
+}
+
 async function runCurrentWorkflow(): Promise<void> {
   store.error = '';
   if (!store.validation.valid) { store.error = store.validation.issues.map((issue) => issue.message).join('；'); return; }
@@ -152,8 +192,9 @@ async function runCurrentWorkflow(): Promise<void> {
         <input v-model="store.workflowName" class="workflow-name-input" aria-label="Workflow 名称" />
         <span class="autosave-status">{{ store.autosavePending ? '保存中...' : store.savedAt ? `已保存 ${store.savedAt}` : '未保存' }}</span>
         <button type="button" class="button button--primary" @click="store.save()">保存</button>
+        <button type="button" class="button" @click="openLoadModal">加载</button>
         <button type="button" class="button button--run" :disabled="running" @click="runCurrentWorkflow">{{ running ? '运行中...' : '运行' }}</button>
-        <select v-model="selectedDemoId" class="demo-select" aria-label="选择 Demo" @change="loadDemo"><option value="">Demo</option><option v-for="demo in demos" :key="demo.id" :value="demo.id">{{ demo.name }}</option></select>
+        <select v-model="selectedDemoId" class="demo-select" aria-label="选择 Demo" @change="loadDemo"><option value="">新项目</option><option v-for="demo in demos" :key="demo.id" :value="demo.id">{{ demo.name }}</option></select>
         <button type="button" class="button" @click="exportJson">JSON</button>
       </div>
     </header>
@@ -234,6 +275,27 @@ async function runCurrentWorkflow(): Promise<void> {
         <div class="json-actions">
           <button type="button" class="button" @click="showMissingInputsModal = false">关闭</button>
           <button type="button" class="button button--primary" @click="goToStartInputs">去填写</button>
+        </div>
+      </div>
+    </div>
+    <div v-if="showLoadModal" class="json-modal" role="dialog" aria-modal="true">
+      <div class="json-card">
+        <div class="panel-heading"><span>加载 Workflow</span><button type="button" class="icon-button" @click="showLoadModal = false">关闭</button></div>
+        <div v-if="loadingSaved" class="empty-state">读取中...</div>
+        <div v-else-if="savedWorkflows.length === 0" class="empty-state">暂无已保存的 Workflow</div>
+        <div v-else class="saved-workflow-list">
+          <button
+            v-for="item in savedWorkflows"
+            :key="item.id"
+            type="button"
+            class="run-item"
+            :class="{ 'run-item--active': loadingWorkflowId === item.id }"
+            @click="loadSavedWorkflow(item.id)"
+          >
+            <span class="run-item__id">{{ item.name }}</span>
+            <small class="run-item__time">{{ item.id }}<template v-if="item.updatedAt"> · {{ item.updatedAt.replace('T', ' ').slice(0, 16) }}</template></small>
+            <span v-if="loadingWorkflowId === item.id">加载中...</span>
+          </button>
         </div>
       </div>
     </div>

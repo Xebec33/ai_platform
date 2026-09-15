@@ -111,6 +111,17 @@ export class PostgresPersistence implements WorkflowPersistence {
     return result.rows[0]?.definition;
   }
 
+  async listWorkflows(): Promise<Array<{ id: string; name: string; updatedAt: string | null }>> {
+    const result = await this.pool.query<{ id: string; name: string; updated_at: Date | null }>(
+      'SELECT id, name, updated_at FROM workflows ORDER BY updated_at DESC NULLS LAST LIMIT 100',
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      updatedAt: row.updated_at ? row.updated_at.toISOString() : null,
+    }));
+  }
+
   async listRuns(limit = 50): Promise<WorkflowRunResult[]> {
     const result = await this.pool.query<{ id: string }>(
       'SELECT id FROM workflow_runs ORDER BY started_at DESC LIMIT $1',

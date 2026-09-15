@@ -72,6 +72,20 @@ export async function registerWorkflowRoutes(
     }
   });
 
+  app.get('/workflows', async (_request, reply) => {
+    if (!options.persistence?.listWorkflows)
+      return reply.code(503).send({ error: '持久化未配置' });
+    try {
+      return reply.send(await options.persistence.listWorkflows());
+    } catch (error) {
+      return reply.code(isDatabaseConnectivityError(error) ? 503 : 500).send({
+        error: isDatabaseConnectivityError(error) ? '数据库暂时不可用，请稍后重试' : 'Workflow 列表读取失败',
+        code: isDatabaseConnectivityError(error) ? 'DATABASE_UNAVAILABLE' : 'WORKFLOW_LIST_FAILED',
+        details: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+
   app.get<{ Params: { workflowId: string } }>('/workflows/:workflowId', async (request, reply) => {
     const workflow = await options.persistence?.getWorkflow?.(request.params.workflowId);
     if (!workflow) return reply.code(404).send({ error: 'Workflow 不存在' });

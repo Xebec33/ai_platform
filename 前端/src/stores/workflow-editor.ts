@@ -1,6 +1,8 @@
 import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import type { JsonObject } from '@ai-workflow/shared-types';
+import { uiGraphToWorkflow } from '@ai-workflow/shared-types';
+import { saveWorkflow } from '../api/workflows';
 import {
   createDefaultWorkflowGraph,
   createWorkflowGraphNode,
@@ -248,7 +250,7 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     ];
     scheduleAutosave();
   }
-  function save(silent = false): void {
+  async function save(silent = false): Promise<void> {
     error.value = '';
     if (!silent && !validation.value.valid) {
       error.value = validation.value.issues.map((issue) => issue.message).join('；');
@@ -258,7 +260,13 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
       window.localStorage.setItem(STORAGE_KEY, serializeWorkflowGraph(graph.value));
     autosavePending.value = false;
     savedAt.value = new Date().toLocaleTimeString();
-    if (!silent) message.value = 'Workflow 已保存';
+    if (silent) return;
+    try {
+      await saveWorkflow(uiGraphToWorkflow(graph.value, { id: workflowId.value, name: workflowName.value }));
+      message.value = 'Workflow 已保存';
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : 'Workflow 保存失败';
+    }
   }
   function loadJson(value: string): void {
     try {
@@ -273,6 +281,16 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     applyGraph(createDefaultWorkflowGraph());
     scheduleAutosave();
     message.value = '已恢复默认 Workflow';
+    error.value = '';
+    savedAt.value = null;
+  }
+  function newProject(): void {
+    const blank = createDefaultWorkflowGraph();
+    blank.id = 'workflow-' + Date.now().toString(36);
+    blank.name = 'Untitled workflow';
+    applyGraph(blank);
+    scheduleAutosave();
+    message.value = '已新建项目';
     error.value = '';
     savedAt.value = null;
   }
@@ -314,6 +332,7 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     save,
     loadJson,
     reset,
+    newProject,
     clearSelection,
   };
 });

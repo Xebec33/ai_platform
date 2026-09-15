@@ -74,6 +74,7 @@ export interface WorkflowPersistence {
   listRuns?(limit?: number): Promise<WorkflowRunResult[]>;
   saveCheckpoint(checkpoint: WorkflowCheckpoint): void | Promise<void>;
   getWorkflow?(workflowId: string): Promise<WorkflowDefinition | undefined>;
+  listWorkflows?(): Promise<Array<{ id: string; name: string; updatedAt: string | null }>>;
   getRun?(runId: string): Promise<WorkflowRunResult | undefined>;
 }
 
