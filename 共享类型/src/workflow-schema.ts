@@ -60,6 +60,7 @@ export const workflowJsonSchema: JsonSchema = {
         source: { type: 'string', minLength: 1 },
         target: { type: 'string', minLength: 1 },
         condition: { type: 'string', minLength: 1 },
+        targetHandle: { enum: ['top', 'bottom'] },
       },
       additionalProperties: false,
     },

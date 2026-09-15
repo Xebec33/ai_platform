@@ -14,6 +14,8 @@ const descriptions: Record<WorkflowNodeType, string> = {
 <template>
   <div class="workflow-node" :class="'workflow-node--' + props.type">
     <Handle v-if="props.type !== 'start'" type="target" :position="Position.Left" class="workflow-handle" />
+    <Handle v-if="props.type !== 'start'" id="top" type="target" :position="Position.Top" class="workflow-handle" />
+    <Handle v-if="props.type !== 'start'" id="bottom" type="target" :position="Position.Bottom" class="workflow-handle" />
     <div class="workflow-node__icon" aria-hidden="true">
       {{ props.type.slice(0, 1).toUpperCase() }}
     </div>

@@ -154,7 +154,7 @@ export const ticketRoutingDemo: WorkflowDefinition = {
     { id: 'ticket-human-end', source: 'create-human-ticket', target: 'end-1' },
     { id: 'ticket-normal-reply', source: 'ticket-urgent', target: 'standard-reply', condition: 'false' },
     { id: 'ticket-reply-normal', source: 'standard-reply', target: 'create-normal-ticket' },
-    { id: 'ticket-normal-end', source: 'create-normal-ticket', target: 'end-1' },
+    { id: 'ticket-normal-end', source: 'create-normal-ticket', target: 'end-1', targetHandle: 'bottom' },
   ],
 };
 
@@ -183,12 +183,12 @@ export const orderDiagnosisDemo: WorkflowDefinition = {
     {
       id: 'order-abnormal',
       type: 'condition',
-      name: '订单是否异常',
+      name: '订单是否正常',
       config: {
         parameter: 'variables.orderInfo.shippingStatus',
-        relation: 'equals',
+        relation: 'not_equals',
         comparisonValue: 'NOT_SHIPPED',
-        expression: 'variables.orderInfo.shippingStatus === "NOT_SHIPPED"',
+        expression: 'variables.orderInfo.shippingStatus !== "NOT_SHIPPED"',
       },
     },
     llmAgent('normal-order-status', '生成订单状态说明', 'orderResult', orderStatusFields, {
@@ -232,15 +232,15 @@ export const orderDiagnosisDemo: WorkflowDefinition = {
   edges: [
     { id: 'order-start-lookup', source: 'start-1', target: 'lookup-order' },
     { id: 'order-lookup-condition', source: 'lookup-order', target: 'order-abnormal' },
-    { id: 'order-normal-status', source: 'order-abnormal', target: 'normal-order-status', condition: 'false' },
-    { id: 'order-status-end', source: 'normal-order-status', target: 'end-1' },
-    { id: 'order-abnormal-analysis', source: 'order-abnormal', target: 'analyze-order', condition: 'true' },
+    { id: 'order-normal-status', source: 'order-abnormal', target: 'normal-order-status', condition: 'true' },
+    { id: 'order-status-end', source: 'normal-order-status', target: 'end-1', targetHandle: 'top' },
+    { id: 'order-abnormal-analysis', source: 'order-abnormal', target: 'analyze-order', condition: 'false' },
     { id: 'order-analysis-condition', source: 'analyze-order', target: 'can-auto-fix' },
     { id: 'order-auto-retry', source: 'can-auto-fix', target: 'retry-fulfillment', condition: 'true' },
     { id: 'order-retry-result', source: 'retry-fulfillment', target: 'order-success-result' },
     { id: 'order-success-end', source: 'order-success-result', target: 'end-1' },
     { id: 'order-manual-ticket', source: 'can-auto-fix', target: 'create-order-ticket', condition: 'false' },
-    { id: 'order-manual-end', source: 'create-order-ticket', target: 'end-1' },
+    { id: 'order-manual-end', source: 'create-order-ticket', target: 'end-1', targetHandle: 'bottom' },
   ],
 };
 
@@ -316,7 +316,7 @@ export const documentQualityDemo: WorkflowDefinition = {
     { id: 'document-revise-write', source: 'revise-document', target: 'write-revised-document' },
     { id: 'document-write-end', source: 'write-revised-document', target: 'end-1' },
     { id: 'document-pass-summary', source: 'quality-serious', target: 'summarize-document', condition: 'false' },
-    { id: 'document-summary-end', source: 'summarize-document', target: 'end-1' },
+    { id: 'document-summary-end', source: 'summarize-document', target: 'end-1', targetHandle: 'bottom' },
   ],
 };
 
@@ -388,9 +388,9 @@ export const loopEngineeringDemo: WorkflowDefinition = {
     { id: 'loop-exit-end', source: 'loop-1', target: 'end-1', condition: 'exit' },
     { id: 'loop-test-review', source: 'test-agent', target: 'reviewer' },
     { id: 'loop-review-condition', source: 'reviewer', target: 'condition-1' },
-    { id: 'loop-condition-pass', source: 'condition-1', target: 'loop-1', condition: 'true' },
+    { id: 'loop-condition-pass', source: 'condition-1', target: 'loop-1', condition: 'true', targetHandle: 'top' },
     { id: 'loop-condition-fix', source: 'condition-1', target: 'fix-agent', condition: 'false' },
-    { id: 'loop-fix-loop', source: 'fix-agent', target: 'loop-1' },
+    { id: 'loop-fix-loop', source: 'fix-agent', target: 'loop-1', targetHandle: 'bottom' },
   ],
 };
 

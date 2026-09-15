@@ -97,6 +97,8 @@ export interface WorkflowEdge {
   source: string;
   target: string;
   condition?: string;
+  /** 布线提示：汇聚边/回边从顶部或底部进入目标节点，避免与其他连线重合 */
+  targetHandle?: 'top' | 'bottom';
 }
 export interface WorkflowDefinition {
   id: string;
@@ -278,6 +280,7 @@ export function workflowToUiGraph(workflow: WorkflowDefinition): WorkflowUiGraph
       source: edge.source,
       target: edge.target,
       ...(edge.condition ? { sourceHandle: edge.condition, label: edge.condition } : {}),
+      ...(edge.targetHandle ? { targetHandle: edge.targetHandle } : {}),
     })),
     variables: cloneJsonObject(workflow.variables),
     inputs: cloneInputDefinitions(workflow.inputs ?? []),
