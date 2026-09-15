@@ -126,6 +126,46 @@ const loopConfig: LoopNodeConfig = {
   bodyNodeId: '',
   exitNodeId: '',
 };
+function defaultConfigFor(type: WorkflowNodeType): Record<string, unknown> {
+  switch (type) {
+    case 'start':
+      return {
+        inputParameters: [
+          {
+            name: 'inputs',
+            type: 'string',
+            required: true,
+            system: true,
+            description: '工作流总输入，由运行请求提供。',
+          },
+        ],
+      };
+    case 'agent':
+      return { ...agentConfig, outputFields: [] };
+    case 'condition':
+      return { ...conditionConfig };
+    case 'tool':
+      return {
+        ...toolConfig,
+        input: { ...toolConfig.input },
+        inputDescriptions: { ...toolConfig.inputDescriptions },
+      };
+    case 'loop':
+      return { ...loopConfig };
+    default:
+      return {};
+  }
+}
+function withConfigDefaults(
+  type: WorkflowNodeType,
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = defaultConfigFor(type);
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
+}
 export function createWorkflowGraphNode(
   type: WorkflowNodeType,
   id: string,
@@ -156,7 +196,7 @@ export function createWorkflowGraphNode(
             }
           : type === 'loop'
             ? { ...loopConfig }
-            : {};
+            : defaultConfigFor(type);
   return {
     id,
     type,
@@ -188,7 +228,7 @@ export function graphToVueFlow(graph: WorkflowGraph) {
       id: n.id,
       type: n.type,
       position: { ...n.position },
-      data: { label: n.data.label, config: { ...n.data.config } },
+      data: { label: n.data.label, config: withConfigDefaults(n.type, { ...n.data.config }) },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
       draggable: true,
@@ -392,7 +432,7 @@ function parseNode(value: unknown, i: number): WorkflowGraphNode {
         typeof data.label === 'string'
           ? data.label
           : value.type.charAt(0).toUpperCase() + value.type.slice(1),
-      config: { ...config },
+      config: withConfigDefaults(value.type, { ...config }),
     },
   };
 }
