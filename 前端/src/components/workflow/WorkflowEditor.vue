@@ -57,6 +57,10 @@ const tools = [
   { name: 'search', label: '内容搜索', hint: '搜索 workspace 文本内容' },
 ];
 const outputTypes = ['string', 'number', 'boolean', 'object', 'array'];
+const runtimeInputs = computed(() =>
+  store.graph.inputs.filter((input) => input.required !== false && String(store.inputValues[input.name] ?? '').trim() === '' && input.defaultValue === undefined),
+);
+const missingRequiredInputs = computed(() => runtimeInputs.value.map((input) => input.label ?? input.name));
 const relations = [
   { value: 'equals', label: '等于' },
   { value: 'not_equals', label: '不等于' },
@@ -119,6 +123,8 @@ function removeToolInput(key: string): void {
 async function runCurrentWorkflow(): Promise<void> {
   store.error = '';
   if (!store.validation.valid) { store.error = store.validation.issues.map((issue) => issue.message).join('；'); return; }
+  const missing = missingRequiredInputs.value;
+  if (missing.length) { store.error = '请先填写运行输入：' + missing.join('、'); return; }
   store.save();
   running.value = true;
   try {
@@ -136,6 +142,17 @@ async function runCurrentWorkflow(): Promise<void> {
     <header class="editor-header">
       <div><p class="eyebrow">PHASE 1 · WORKFLOW EDITOR</p><h1>{{ store.workflowName }}</h1><p class="editor-subtitle">可视化编排 Workflow，修改会自动保存</p></div>
       <div class="editor-actions">
+        <div v-if="runtimeInputs.length" class="runtime-inputs">
+          <span class="runtime-inputs__label">运行输入</span>
+          <label v-for="input in runtimeInputs" :key="input.name" class="runtime-input">
+            <span class="runtime-input__name">{{ input.label ?? input.name }}</span>
+            <input
+              :value="String(store.inputValues[input.name] ?? '')"
+              :placeholder="input.type === 'string' ? '文本' : input.type"
+              @input="store.updateInputValue(input.name, ($event.target as HTMLInputElement).value)"
+            />
+          </label>
+        </div>
         <input v-model="store.workflowName" class="workflow-name-input" aria-label="Workflow 名称" />
         <span class="autosave-status">{{ store.autosavePending ? '保存中...' : store.savedAt ? `已保存 ${store.savedAt}` : '未保存' }}</span>
         <button type="button" class="button button--primary" @click="store.save()">保存</button>
