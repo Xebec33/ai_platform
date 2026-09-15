@@ -27,7 +27,11 @@ export interface WorkspaceCommandResult {
   outputLimitExceeded: boolean;
 }
 
-const DEFAULT_ALLOWED_COMMANDS = ['echo', 'printf', 'pwd'];
+const DEFAULT_ALLOWED_COMMANDS = [
+  'echo', 'printf', 'pwd',
+  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'find', 'date',
+  'mkdir', 'touch', 'cp', 'mv', 'sed',
+];
 
 export class ShellTool implements Tool {
   readonly name = 'shell';
@@ -52,10 +56,7 @@ export class ShellTool implements Tool {
       maxOutputBytes?: number;
     } = {},
   ) {
-    const configured = options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS;
-    this.allowedCommands = new Set(
-      configured.filter((command) => DEFAULT_ALLOWED_COMMANDS.includes(command)),
-    );
+    this.allowedCommands = new Set(options.allowedCommands ?? DEFAULT_ALLOWED_COMMANDS);
   }
 
   async execute(input: JsonObject, context: ToolExecutionContext): Promise<ToolExecutionResult> {

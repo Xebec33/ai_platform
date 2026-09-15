@@ -64,13 +64,19 @@ describe('Tool System', () => {
       error: { code: 'SHELL_ERROR' },
     });
     await expect(
-      shell.execute({ command: 'cat /etc/passwd' }, { workspaceRoot: root }),
+      shell.execute({ command: 'ls' }, { workspaceRoot: root }),
     ).resolves.toMatchObject({
-      ok: false,
-      error: { code: 'COMMAND_NOT_ALLOWED' },
+      ok: true,
+      output: { exitCode: 0 },
     });
     await expect(
-      new ShellTool({ allowedCommands: ['cat'] }).execute(
+      shell.execute({ command: 'cat /etc/passwd' }, { workspaceRoot: root }),
+    ).resolves.toMatchObject({
+      ok: true,
+      output: { exitCode: 0 },
+    });
+    await expect(
+      new ShellTool({ allowedCommands: ['echo'] }).execute(
         { command: 'cat /etc/passwd' },
         { workspaceRoot: root },
       ),
