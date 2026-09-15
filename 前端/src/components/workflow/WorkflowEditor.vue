@@ -68,7 +68,14 @@ const relations = [
 ];
 
 onMounted(async () => {
-  store.initialize();
+  // VueFlow 挂载时会暂停 model watcher 直到 nextTick，同步替换节点数组会被吞掉，
+  // 必须等 watcher 恢复后再恢复本地存储的图
+  await nextTick();
+  const restored = store.initialize();
+  if (restored) {
+    await nextTick();
+    await fitView({ padding: 0.2, duration: 300 });
+  }
   try {
     demos.value = await listWorkflowDemos();
   } catch {

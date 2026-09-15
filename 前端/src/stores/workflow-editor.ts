@@ -83,19 +83,21 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     edges.value = flow.edges;
     selectedNodeId.value = null;
   }
-  function initialize(): void {
-    if (typeof window === 'undefined') return;
+  function initialize(): boolean {
+    if (typeof window === 'undefined') return false;
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (!stored) {
       scheduleAutosave();
-      return;
+      return false;
     }
     try {
       applyGraph(deserializeWorkflowGraph(stored));
       savedAt.value = new Date().toLocaleTimeString();
       message.value = '已从本地存储恢复 Workflow';
+      return true;
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '本地 Workflow 无法加载';
+      return false;
     }
   }
   function scheduleAutosave(): void {

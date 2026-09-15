@@ -83,4 +83,30 @@ describe('workflow graph', () => {
       { name: 'inputs', type: 'string', required: true, system: true, description: expect.any(String) },
     ]);
   });
+  it('generates unique edge ids when loading a graph with id-less edges', () => {
+    const broken = {
+      id: 'workflow-1',
+      name: 'Untitled workflow',
+      version: 1,
+      variables: {},
+      inputs: [],
+      nodes: [
+        { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'Start', config: {} } },
+        { id: 'agent-1', type: 'agent', position: { x: 100, y: 0 }, data: { label: 'Agent', config: {} } },
+        { id: 'tool-1', type: 'tool', position: { x: 200, y: 0 }, data: { label: 'Tool', config: {} } },
+        { id: 'end-1', type: 'end', position: { x: 300, y: 0 }, data: { label: 'End', config: {} } },
+      ],
+      edges: [
+        { source: 'start-1', target: 'agent-1' },
+        { source: 'agent-1', target: 'tool-1' },
+        { source: 'tool-1', target: 'end-1' },
+        { id: 'edge-1', source: 'agent-1', target: 'end-1' },
+      ],
+    };
+    const graph = deserializeWorkflowGraph(JSON.stringify(broken));
+    const ids = graph.edges.map((edge) => edge.id);
+    expect(ids.every((id) => id.length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('edge-1');
+  });
 });

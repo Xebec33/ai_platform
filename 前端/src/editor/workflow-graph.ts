@@ -404,7 +404,7 @@ export function validateWorkflowGraph(value: unknown): WorkflowGraphValidationRe
 }
 function parseGraph(value: unknown): WorkflowGraph {
   if (!isRecord(value)) throw new Error('Workflow JSON 根节点必须是对象');
-  return {
+  const graph: WorkflowGraph = {
     id: typeof value.id === 'string' ? value.id : '',
     name: typeof value.name === 'string' ? value.name : '',
     version: value.version === 1 ? 1 : (0 as never),
@@ -413,6 +413,19 @@ function parseGraph(value: unknown): WorkflowGraph {
     nodes: Array.isArray(value.nodes) ? value.nodes.map(parseNode) : [],
     edges: Array.isArray(value.edges) ? value.edges.map(parseEdge) : [],
   };
+  assignUniqueEdgeIds(graph.edges);
+  return graph;
+}
+
+function assignUniqueEdgeIds(edges: WorkflowGraphEdge[]): void {
+  const ids = new Set(edges.filter((edge) => edge.id).map((edge) => edge.id));
+  for (const edge of edges) {
+    if (edge.id) continue;
+    let index = 1;
+    while (ids.has('edge-' + index)) index += 1;
+    edge.id = 'edge-' + index;
+    ids.add(edge.id);
+  }
 }
 function parseNode(value: unknown, i: number): WorkflowGraphNode {
   if (!isRecord(value) || !isNodeType(value.type))
