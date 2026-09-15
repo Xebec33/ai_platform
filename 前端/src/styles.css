@@ -515,6 +515,25 @@ h1 {
   white-space: nowrap;
 }
 
+.param-item {
+  display: grid;
+  gap: 5px;
+}
+
+.param-description {
+  width: 100%;
+  padding: 6px 7px;
+  border: 1px solid rgba(181, 194, 255, 0.14);
+  border-radius: 7px;
+  color: #aab7d8;
+  background: rgba(7, 12, 28, 0.5);
+  font-size: 11px;
+}
+
+.param-description::placeholder {
+  color: #6d7a9e;
+}
+
 .icon-button {
   padding: 3px 6px;
   border: 0;
@@ -1071,6 +1090,58 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.workspace-editor {
+  width: 100%;
+  min-height: 420px;
+  max-height: 60vh;
+  padding: 10px;
+  border: 1px solid rgba(181, 194, 255, 0.18);
+  border-radius: 8px;
+  color: #c7d3f5;
+  background: rgba(7, 12, 28, 0.68);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.workspace-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.workspace-path-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  color: #8290b5;
+  font-size: 12px;
+}
+
+.workspace-path-input {
+  flex: 1;
+  max-width: 360px;
+  padding: 6px 8px;
+  border: 1px solid rgba(181, 194, 255, 0.18);
+  border-radius: 7px;
+  color: #e8eefc;
+  background: rgba(7, 12, 28, 0.7);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.workspace-delete-button {
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 123, 140, 0.35);
+  border-radius: 7px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .self-dev-form {

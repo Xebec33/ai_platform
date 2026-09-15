@@ -1,8 +1,12 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ToolError } from '../../tools/types.js';
-import { relativeWorkspacePath, resolveExistingWorkspacePath } from '../../tools/workspace.js';
+import {
+  relativeWorkspacePath,
+  resolveExistingWorkspacePath,
+  resolveWritableWorkspacePath,
+} from '../../tools/workspace.js';
 
 export interface WorkspaceRoutesOptions {
   workspaceRoot: string;
@@ -55,6 +59,48 @@ export async function registerWorkspaceRoutes(
     }
   });
 
+  app.put<{ Body: { path?: unknown; content?: unknown } }>(
+    '/workspace/file',
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const requested = typeof body.path === 'string' ? body.path : '';
+      const content = typeof body.content === 'string' ? body.content : undefined;
+      if (!requested) return reply.code(400).send({ error: '缺少 path 参数' });
+      if (content === undefined) return reply.code(400).send({ error: '缺少 content 参数' });
+      if (Buffer.byteLength(content, 'utf8') > maxFileBytes)
+        return reply.code(422).send({ error: '文件过大，仅支持 ' + maxFileBytes + ' 字节以内' });
+      try {
+        const resolved = await resolveWritableWorkspacePath(root, requested);
+        await mkdir(path.dirname(resolved), { recursive: true });
+        await writeFile(resolved, content, { encoding: 'utf8', flag: 'w' });
+        return reply.send({
+          path: relativeWorkspacePath(root, resolved),
+          bytes: Buffer.byteLength(content, 'utf8'),
+          written: true,
+        });
+      } catch (error) {
+        return workspaceError(reply, error);
+      }
+    },
+  );
+
+  app.delete<{ Querystring: { path?: string } }>(
+    '/workspace/file',
+    async (request, reply) => {
+      const requested = (request.query as { path?: string }).path;
+      if (!requested) return reply.code(400).send({ error: '缺少 path 参数' });
+      try {
+        const resolved = await resolveExistingWorkspacePath(root, requested);
+        const details = await stat(resolved);
+        if (!details.isFile()) return reply.code(400).send({ error: 'path 不是文件' });
+        await rm(resolved, { force: false });
+        return reply.send({ path: requested, deleted: true });
+      } catch (error) {
+        return workspaceError(reply, error);
+      }
+    },
+  );
+
   async function walk(
     base: string,
     relative: string,
@@ -86,5 +132,5 @@ function workspaceError(reply: FastifyReply, error: unknown) {
       error: error.message,
       code: error.code,
     });
-  return reply.code(500).send({ error: '读取 workspace 失败' });
+  return reply.code(500).send({ error: '访问 workspace 失败' });
 }

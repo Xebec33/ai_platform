@@ -16,11 +16,10 @@ const demos = ref<Array<{ id: string; name: string }>>([]);
 const selectedDemoId = ref('');
 const jsonText = ref('');
 const showJson = ref(false);
-const activeCategory = ref<'基础' | '工具'>('基础');
 const nodeTypes = { start: WorkflowNode, agent: WorkflowNode, condition: WorkflowNode, tool: WorkflowNode, loop: WorkflowNode, end: WorkflowNode };
 const selectedType = computed(() => store.selectedNode?.type ?? null);
 const selectedConfig = computed(() => store.selectedNode?.data.config ?? {});
-const outputFields = computed(() => (Array.isArray(selectedConfig.value.outputFields) ? selectedConfig.value.outputFields : []) as Array<{ name?: string; type?: string }>);
+const outputFields = computed(() => (Array.isArray(selectedConfig.value.outputFields) ? selectedConfig.value.outputFields : []) as Array<{ name?: string; type?: string; description?: string }>);
 const toolInput = computed(() => (selectedConfig.value.input && typeof selectedConfig.value.input === 'object' ? selectedConfig.value.input : {}) as Record<string, unknown>);
 const startParams = computed(() => store.startParameters());
 const parameterTypes = ['string', 'number', 'boolean', 'object', 'array'];
@@ -34,20 +33,12 @@ const loopTargets = computed(() => {
   }
   return result;
 });
-const categories = [
-  { name: '基础', hint: '流程和模型节点' },
-  { name: '工具', hint: '调用外部能力' },
-] as const;
-const nodeOptions: Record<'基础' | '工具', { type: WorkflowNodeType; label: string; hint: string }[]> = {
-  基础: [
-    { type: 'agent', label: '大模型', hint: '提示词与结构化输出' },
-    { type: 'condition', label: '条件分支', hint: '满足 / 不满足双分支' },
-    { type: 'loop', label: '循环', hint: 'Loop Engineering 失败修复' },
-  ],
-  工具: [
-    { type: 'tool', label: '工具', hint: '文件、Shell、Git 等' },
-  ],
-};
+const nodeOptions: { type: WorkflowNodeType; label: string; hint: string }[] = [
+  { type: 'agent', label: '大模型', hint: '提示词与结构化输出' },
+  { type: 'condition', label: '条件分支', hint: '满足 / 不满足双分支' },
+  { type: 'loop', label: '循环', hint: 'Loop Engineering 失败修复' },
+  { type: 'tool', label: '工具', hint: '文件、Shell、Git 等' },
+];
 const tools = [
   { name: 'file_read', label: '文件读取', hint: '读取 workspace 内的文本文件' },
   { name: 'file_write', label: '文件写入', hint: '写入 workspace 内的文本文件' },
@@ -117,10 +108,19 @@ function updateField(index: number, key: string, value: unknown): void {
   const fields = outputFields.value.map((field) => ({ ...field }));
   const field = fields[index];
   if (!field) return;
-  field[key as 'name' | 'type'] = value as never;
+  field[key as 'name' | 'type' | 'description'] = value as never;
   store.updateSelectedConfig('outputFields', fields);
 }
 function updateToolEntry(key: string, value: string): void { store.updateToolInput(key, value); }
+const toolInputDescriptions = computed(() =>
+  (selectedConfig.value.inputDescriptions && typeof selectedConfig.value.inputDescriptions === 'object'
+    ? selectedConfig.value.inputDescriptions
+    : {}) as Record<string, string>,
+);
+function updateToolEntryDescription(key: string, value: string): void {
+  const descriptions = { ...toolInputDescriptions.value, [key]: value };
+  store.updateSelectedConfig('inputDescriptions', descriptions);
+}
 function addToolInput(): void {
   const base = 'parameter';
   let index = 1;
@@ -130,7 +130,10 @@ function addToolInput(): void {
 function removeToolInput(key: string): void {
   const next = { ...toolInput.value };
   delete next[key];
+  const descriptions = { ...toolInputDescriptions.value };
+  delete descriptions[key];
   store.updateSelectedConfig('input', next);
+  store.updateSelectedConfig('inputDescriptions', descriptions);
 }
 function goToStartInputs(): void {
   showMissingInputsModal.value = false;
@@ -200,11 +203,8 @@ async function runCurrentWorkflow(): Promise<void> {
     </header>
     <div class="editor-content">
       <aside class="node-palette">
-        <div class="panel-heading"><span>节点</span><small>按分类添加</small></div>
-        <div class="palette-tabs">
-          <button v-for="category in categories" :key="category.name" type="button" class="palette-tab" :class="{ active: activeCategory === category.name }" @click="activeCategory = category.name">{{ category.name }}</button>
-        </div>
-        <button v-for="option in nodeOptions[activeCategory]" :key="option.type" type="button" class="palette-item" @click="store.addNode(option.type)"><span class="palette-icon">{{ option.label.slice(0, 1) }}</span><span><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></span></button>
+        <div class="panel-heading"><span>节点</span><small>点击添加</small></div>
+        <button v-for="option in nodeOptions" :key="option.type" type="button" class="palette-item" @click="store.addNode(option.type)"><span class="palette-icon">{{ option.label.slice(0, 1) }}</span><span><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></span></button>
       </aside>
       <section class="flow-panel">
         <VueFlow v-model:nodes="store.nodes" v-model:edges="store.edges" :node-types="nodeTypes" :connection-mode="ConnectionMode.Strict" fit-view-on-init @connect="onConnect" @node-click="onNodeClick" @pane-click="store.clearSelection" />
@@ -218,14 +218,14 @@ async function runCurrentWorkflow(): Promise<void> {
           <template v-if="selectedType === 'agent'">
             <label>提示词<textarea :value="String(selectedConfig.systemPrompt ?? '')" rows="5" @input="store.updateSelectedConfig('systemPrompt', ($event.target as HTMLTextAreaElement).value)" /></label>
             <label>输出格式<select :value="String(selectedConfig.outputFormat ?? 'text')" @change="store.updateSelectedConfig('outputFormat', ($event.target as HTMLSelectElement).value)"><option value="text">文本</option><option value="json">JSON</option></select></label>
-            <div v-if="selectedConfig.outputFormat === 'json'" class="field-list"><div class="field-list__header"><strong>JSON 输出参数</strong><button type="button" class="button button--small" @click="store.addAgentOutputField">新增参数</button></div><div v-for="(field, index) in outputFields" :key="index" class="field-row"><input :value="field.name ?? ''" placeholder="参数名称" @input="updateField(index, 'name', ($event.target as HTMLInputElement).value)" /><select :value="field.type ?? 'string'" @change="updateField(index, 'type', ($event.target as HTMLSelectElement).value)"><option v-for="type in outputTypes" :key="type" :value="type">{{ type }}</option></select><button type="button" class="icon-button" @click="store.removeAgentOutputField(index)">×</button></div></div>
+            <div v-if="selectedConfig.outputFormat === 'json'" class="field-list"><div class="field-list__header"><strong>JSON 输出参数</strong><button type="button" class="button button--small" @click="store.addAgentOutputField">新增参数</button></div><div v-for="(field, index) in outputFields" :key="index" class="param-item"><div class="field-row"><input :value="field.name ?? ''" placeholder="参数名称" @input="updateField(index, 'name', ($event.target as HTMLInputElement).value)" /><select :value="field.type ?? 'string'" @change="updateField(index, 'type', ($event.target as HTMLSelectElement).value)"><option v-for="type in outputTypes" :key="type" :value="type">{{ type }}</option></select><button type="button" class="icon-button" @click="store.removeAgentOutputField(index)">×</button></div><input class="param-description" :value="field.description ?? ''" placeholder="描述（供 Agent 理解该参数含义）" @input="updateField(index, 'description', ($event.target as HTMLInputElement).value)" /></div></div>
             <label>模型<input :value="String(selectedConfig.model ?? '')" @input="store.updateSelectedConfig('model', ($event.target as HTMLInputElement).value)" /></label><label>Temperature<input type="number" min="0" max="2" step="0.1" :value="Number(selectedConfig.temperature ?? 0.7)" @input="updateNumber('temperature', $event)" /></label><label>Max Tokens<input type="number" min="1" step="1" :value="Number(selectedConfig.maxTokens ?? 2048)" @input="updateNumber('maxTokens', $event)" /></label>
           </template>
           <template v-else-if="selectedType === 'condition'">
             <label>参数<input :value="String(selectedConfig.parameter ?? '')" placeholder="variables.approved" @input="store.updateSelectedConfig('parameter', ($event.target as HTMLInputElement).value)" /></label><label>条件关系<select :value="String(selectedConfig.relation ?? 'equals')" @change="store.updateSelectedConfig('relation', ($event.target as HTMLSelectElement).value)"><option v-for="relation in relations" :key="relation.value" :value="relation.value">{{ relation.label }}</option></select></label><label>比较值<input :value="String(selectedConfig.comparisonValue ?? '')" @input="store.updateSelectedConfig('comparisonValue', ($event.target as HTMLInputElement).value)" /></label><p class="config-hint">下方两个输出点分别代表“满足”和“不满足”。</p>
           </template>
           <template v-else-if="selectedType === 'tool'">
-            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="field-row"><span class="field-key">{{ key }}</span><input :value="String(value ?? '')" @input="updateToolEntry(key, ($event.target as HTMLInputElement).value)" /><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div></div>
+            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><label>输出参数描述<input :value="String(selectedConfig.outputKeyDescription ?? '')" placeholder="工具输出结果的含义（可选）" @input="store.updateSelectedConfig('outputKeyDescription', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="param-item"><div class="field-row"><span class="field-key">{{ key }}</span><input :value="String(value ?? '')" @input="updateToolEntry(key, ($event.target as HTMLInputElement).value)" /><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div><input class="param-description" :value="toolInputDescriptions[key] ?? ''" placeholder="描述（该输入参数的含义）" @input="updateToolEntryDescription(key, ($event.target as HTMLInputElement).value)" /></div></div>
           </template>
           <template v-else-if="selectedType === 'loop'">
             <label>最大迭代次数<input type="number" min="1" step="1" :value="Number(selectedConfig.maxIterations ?? 3)" @input="updateNumber('maxIterations', $event)" /></label>
@@ -256,6 +256,7 @@ async function runCurrentWorkflow(): Promise<void> {
                     <label class="checkbox-label"><input type="checkbox" :checked="parameter.required !== false" @change="store.updateStartParameter(index, 'required', ($event.target as HTMLInputElement).checked)" /> 必填</label>
                     <input :value="String(store.inputValues[parameter.name] ?? '')" placeholder="运行时值" @input="store.updateInputValue(parameter.name, ($event.target as HTMLInputElement).value)" />
                   </div>
+                  <input class="param-description" :value="parameter.description ?? ''" placeholder="描述（该输入参数的含义）" @input="store.updateStartParameter(index, 'description', ($event.target as HTMLInputElement).value)" />
                 </template>
               </div>
             </div>

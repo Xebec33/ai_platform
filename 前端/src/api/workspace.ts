@@ -31,3 +31,25 @@ export async function readWorkspaceFile(path: string): Promise<WorkspaceFileCont
   if (!response.ok) throw new Error(payload.error ?? '读取文件失败: ' + response.status);
   return payload;
 }
+
+export async function writeWorkspaceFile(path: string, content: string): Promise<void> {
+  const response = await apiFetch('/workspace/file', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? '保存文件失败: ' + response.status);
+  }
+}
+
+export async function deleteWorkspaceFile(path: string): Promise<void> {
+  const response = await apiFetch('/workspace/file?path=' + encodeURIComponent(path), {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? '删除文件失败: ' + response.status);
+  }
+}

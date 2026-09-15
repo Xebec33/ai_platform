@@ -466,7 +466,12 @@ function outputSchemaFromAgentConfig(config: Record<string, unknown>): JsonObjec
     if (typeof field !== 'object' || field === null || Array.isArray(field)) continue;
     const name = 'name' in field && typeof field.name === 'string' ? field.name.trim() : '';
     const type = 'type' in field && typeof field.type === 'string' ? field.type : 'string';
-    if (name) properties[name] = { type };
+    const description =
+      'description' in field && typeof field.description === 'string' && field.description.trim()
+        ? field.description.trim()
+        : '';
+    if (name)
+      properties[name] = { type, ...(description ? { description } : {}) } as JsonObject;
   }
   return { type: 'object', properties };
 }

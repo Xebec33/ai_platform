@@ -181,8 +181,16 @@ function systemPromptFor(config: {
   outputSchema?: JsonObject;
 }): string {
   if (config.outputFormat !== 'json') return config.systemPrompt;
-  const properties = isObject(config.outputSchema?.properties) ? Object.keys(config.outputSchema.properties) : [];
-  const target = properties.length > 0 ? 'JSON 对象，字段为：' + properties.join('、') : '合法 JSON 值';
+  const properties = isObject(config.outputSchema?.properties) ? config.outputSchema.properties : {};
+  const keys = Object.keys(properties);
+  const target = keys.length > 0
+    ? 'JSON 对象，字段为：' + keys.map((key) => {
+        const description = isObject(properties[key]) && typeof (properties[key] as JsonObject).description === 'string'
+          ? ((properties[key] as JsonObject).description as string).trim()
+          : '';
+        return description ? `${key}（${description}）` : key;
+      }).join('、')
+    : '合法 JSON 值';
   return `${config.systemPrompt}\n\n输出格式要求：只输出${target}，不要输出 Markdown 代码块、解释文字或其他前后缀。`;
 }
 
