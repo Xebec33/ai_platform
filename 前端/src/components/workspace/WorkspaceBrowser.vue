@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
+  createWorkspaceDirectory,
   deleteWorkspaceFile,
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -30,6 +31,7 @@ const formatSize = (size?: number): string => {
 const sortedFiles = computed(() => {
   const depth = (path: string): number => path.split('/').length;
   return [...files.value].sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
     const depthDiff = depth(a.path) - depth(b.path);
     if (depthDiff !== 0) return depthDiff;
     return a.path.localeCompare(b.path);
@@ -65,6 +67,35 @@ async function openFile(entry: WorkspaceFileEntry): Promise<void> {
     error.value = cause instanceof Error ? cause.message : '读取文件失败';
   } finally {
     fileLoading.value = false;
+  }
+}
+
+async function createDirectory(): Promise<void> {
+  const input = window.prompt('新目录路径（相对 workspace，例如 notes）');
+  const dirPath = input?.trim().replace(/\/+$/, '');
+  if (!dirPath) return;
+  error.value = '';
+  try {
+    await createWorkspaceDirectory(dirPath);
+    await refresh();
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '创建目录失败';
+  }
+}
+
+async function removeEntry(entry: WorkspaceFileEntry): Promise<void> {
+  if (!window.confirm(`确认删除 ${entry.path}${entry.type === 'directory' ? ' 及其全部内容' : ''}？`)) return;
+  error.value = '';
+  try {
+    await deleteWorkspaceFile(entry.path);
+    if (selected.value?.path === entry.path || selected.value?.path.startsWith(entry.path + '/')) {
+      selected.value = null;
+      filePath.value = '';
+      fileContent.value = '';
+    }
+    await refresh();
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '删除失败';
   }
 }
 
@@ -127,6 +158,7 @@ onMounted(refresh);
       </div>
       <div class="editor-actions">
         <button type="button" class="button" @click="createFile">新建文件</button>
+        <button type="button" class="button" @click="createDirectory">新建目录</button>
         <button type="button" class="button" :disabled="loading" @click="refresh">
           {{ loading ? '刷新中...' : '刷新' }}
         </button>
@@ -151,8 +183,15 @@ onMounted(refresh);
           @click="openFile(entry)"
         >
           <span class="workspace-item__icon">{{ entry.type === 'directory' ? '📁' : '📄' }}</span>
-          <span class="workspace-item__path">{{ entry.path }}</span>
+          <span class="workspace-item__path">{{ entry.name }}</span>
           <small class="workspace-item__size">{{ formatSize(entry.size) }}</small>
+          <span
+            v-if="entry.type === 'directory' && entry.path !== '.'"
+            role="button"
+            class="workspace-item__remove"
+            title="删除目录"
+            @click.stop="removeEntry(entry)"
+          >×</span>
         </button>
       </aside>
       <section class="workspace-preview">

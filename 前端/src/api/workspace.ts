@@ -53,3 +53,15 @@ export async function deleteWorkspaceFile(path: string): Promise<void> {
     throw new Error(payload.error ?? '删除文件失败: ' + response.status);
   }
 }
+
+export async function createWorkspaceDirectory(path: string): Promise<void> {
+  const response = await apiFetch('/workspace/directory', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error ?? '创建目录失败: ' + response.status);
+  }
+}

@@ -17,7 +17,7 @@ export function createSelfDevelopmentWorkflow(
 ): WorkflowDefinition {
   const taskId = options.taskId ?? 'platform-task';
   const requirement = options.requirement ?? '给 AI Workflow Platform 增加一个功能';
-  const model = options.model ?? 'gpt-4o-mini';
+  const model = options.model ?? 'deepseek-chat';
   const codingModel = options.codingModel ?? model;
   const codingExecutorId = options.codingExecutorId ?? 'coding-agent';
   const codingTimeoutMs = options.codingTimeoutMs ?? 900_000;

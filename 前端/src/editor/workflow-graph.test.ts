@@ -72,7 +72,7 @@ describe('workflow graph', () => {
     const flow = graphToVueFlow(graph);
     const agent = flow.nodes.find((node) => node.id === 'agent-1');
     expect(agent?.data.config).toMatchObject({
-      model: 'gpt-4o-mini',
+      model: 'deepseek-chat',
       systemPrompt: expect.any(String),
       outputFormat: 'text',
       temperature: 0.7,

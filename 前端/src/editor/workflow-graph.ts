@@ -96,7 +96,7 @@ export interface WorkflowGraphValidationResult {
   issues: WorkflowGraphValidationIssue[];
 }
 const agentConfig: AgentNodeConfig = {
-  model: 'gpt-4o-mini',
+  model: 'deepseek-chat',
   systemPrompt: 'You are a helpful workflow agent.',
   outputFormat: 'text',
   outputFields: [],

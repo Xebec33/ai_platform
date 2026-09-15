@@ -28,7 +28,7 @@ describe('ProviderAgentExecutor', () => {
     });
     expect(result.output).toEqual({ text: 'RAG is retrieval augmented generation.' });
     expect(result.rawText).toContain('retrieval');
-    expect(requests[0]).toMatchObject({ input: 'Explain RAG', model: 'gpt-4o-mini' });
+    expect(requests[0]).toMatchObject({ input: 'Explain RAG', model: 'deepseek-chat' });
   });
 
   it('parses structured Agent output when outputSchema is configured', async () => {

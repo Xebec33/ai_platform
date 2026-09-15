@@ -165,7 +165,7 @@ export function createWorkflowDefinition(
         type: 'agent',
         name: 'Agent',
         config: {
-          model: 'gpt-4o-mini',
+          model: 'deepseek-chat',
           systemPrompt: 'You are a helpful workflow agent.',
           temperature: 0.7,
           maxTokens: 2048,

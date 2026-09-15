@@ -1091,6 +1091,17 @@ h1 {
   font-size: 11px;
 }
 
+.workspace-item__remove {
+  padding: 0 6px;
+  color: #8290b5;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.workspace-item__remove:hover {
+  color: #ff9caf;
+}
+
 .workspace-file-content {
   max-height: 65vh;
   margin: 0;

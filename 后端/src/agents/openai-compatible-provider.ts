@@ -118,7 +118,7 @@ export function createOpenAICompatibleProviderFromEnv(
   if (!apiKey)
     throw new Error('启用 OpenAI-compatible Provider 时必须配置 OPENAI_API_KEY 或 DEEPSEEK_API_KEY');
   const baseUrl = env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1';
-  const model = env.OPENAI_MODEL?.trim() || 'gpt-4o-mini';
+  const model = env.OPENAI_MODEL?.trim() || 'deepseek-chat';
   return {
     provider: new OpenAICompatibleProvider({
       id: env.OPENAI_PROVIDER_ID?.trim() || 'openai-compatible',

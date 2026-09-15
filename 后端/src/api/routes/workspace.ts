@@ -92,6 +92,10 @@ export async function registerWorkspaceRoutes(
       try {
         const resolved = await resolveExistingWorkspacePath(root, requested);
         const details = await stat(resolved);
+        if (details.isDirectory()) {
+          await rm(resolved, { force: false, recursive: true });
+          return reply.send({ path: requested, deleted: true });
+        }
         if (!details.isFile()) return reply.code(400).send({ error: 'path 不是文件' });
         await rm(resolved, { force: false });
         return reply.send({ path: requested, deleted: true });
@@ -100,6 +104,21 @@ export async function registerWorkspaceRoutes(
       }
     },
   );
+
+  app.post<{ Body: { path?: unknown } }>('/workspace/directory', async (request, reply) => {
+    const body = request.body ?? {};
+    const requested = typeof body.path === 'string' ? body.path : '';
+    if (!requested) return reply.code(400).send({ error: '缺少 path 参数' });
+    if (requested === '.' || requested === '/')
+      return reply.code(400).send({ error: '不能创建 workspace 根目录' });
+    try {
+      const resolved = await resolveWritableWorkspacePath(root, requested);
+      await mkdir(resolved, { recursive: false });
+      return reply.send({ path: relativeWorkspacePath(root, resolved), created: true });
+    } catch (error) {
+      return workspaceError(reply, error);
+    }
+  });
 
   async function walk(
     base: string,
