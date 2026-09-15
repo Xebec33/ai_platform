@@ -193,15 +193,15 @@ onUnmounted(() => store.clearSelection());
             <div class="node-run__body">
               <div class="node-run__header">
                 <strong>{{ nodeRun.nodeId }}</strong>
-                <span class="node-run__status" :class="statusClass(nodeRun.status)">{{
-                  nodeRun.status
-                }}</span>
                 <small v-if="nodeRun.iteration !== undefined" class="node-run__iteration">
                   迭代 {{ nodeRun.iteration }}
                 </small>
                 <small v-if="nodeRun.usage" class="node-run__usage">
                   {{ (nodeRun.usage.promptTokens ?? 0) + (nodeRun.usage.completionTokens ?? 0) }} tokens
                 </small>
+                <span class="node-run__status" :class="statusClass(nodeRun.status)">{{
+                  nodeRun.status
+                }}</span>
               </div>
               <small class="node-run__duration">
                 {{ duration(nodeRun.startedAt, nodeRun.finishedAt) }}

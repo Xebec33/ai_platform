@@ -1109,6 +1109,10 @@ h1 {
   font-size: 11px;
 }
 
+.node-run__header .node-run__status {
+  margin-left: auto;
+}
+
 .log-section {
   position: relative;
   margin-top: 20px;

@@ -43,8 +43,8 @@ export function createSelfDevelopmentWorkflow(
           exitNodeId: 'commit-1',
         },
       },
-      agent('test-agent', 'Test Agent', model, 'test', '在 workspace 中运行与本次改动相关的测试（优先运行受影响的测试文件，而不是全部测试）。测试全部通过时 passed 为 true。必须输出 { passed, tests, failures }。', undefined, 'test'),
-      agent('reviewer', 'Reviewer Agent', model, 'review', '审查 Git Diff、测试结果、类型安全和架构一致性（可用 git diff 查看改动）。改动符合需求且无明显问题时 passed 为 true。必须输出 { passed, issues }。', undefined, 'review'),
+      agent('test-agent', 'Test Agent', model, 'test', '在 workspace 中运行与本次改动相关的测试（优先运行受影响的测试文件，而不是全部测试）。测试全部通过时 passed 为 true。必须输出 { passed, tests, failures }。', undefined, 'test', undefined, true),
+      agent('reviewer', 'Reviewer Agent', model, 'review', '审查 Git Diff、测试结果、类型安全和架构一致性（可用 git diff 查看改动）。改动符合需求且无明显问题时 passed 为 true。必须输出 { passed, issues }。', undefined, 'review', undefined, true),
       {
         id: 'condition-1',
         type: 'condition',
@@ -94,6 +94,7 @@ function agent(
   executorId?: string,
   mockRole?: string,
   timeoutMs?: number,
+  useTools?: boolean,
 ): WorkflowNode {
   return {
     id,
@@ -108,6 +109,7 @@ function agent(
       ...(executorId ? { executorId } : {}),
       ...(mockRole ? { mockRole } : {}),
       ...(timeoutMs ? { timeout: timeoutMs } : {}),
+      ...(useTools ? { useTools: true } : {}),
     },
   } as WorkflowNode;
 }

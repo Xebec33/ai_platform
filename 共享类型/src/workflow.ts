@@ -47,6 +47,8 @@ export interface AgentConfig extends JsonObject {
   maxTokens?: number;
   input?: JsonValue;
   outputKey?: string;
+  /** 允许该 Agent 在推理中调用已注册的 Tool（默认 false，纯 LLM 推理） */
+  useTools?: boolean;
 }
 export interface ConditionConfig extends JsonObject {
   expression: string;
@@ -256,19 +258,18 @@ function startInputs(graph: WorkflowUiGraph): WorkflowInputDefinition[] {
 
 export function workflowToUiGraph(workflow: WorkflowDefinition): WorkflowUiGraph {
   const layers = computeLayers(workflow);
-  const columnCounts = new Map<number, number>();
+  const rows = computeRows(workflow, layers);
   return {
     id: workflow.id,
     name: workflow.name,
     version: 1 as const,
     nodes: workflow.nodes.map((node) => {
       const layer = layers.get(node.id) ?? 0;
-      const row = columnCounts.get(layer) ?? 0;
-      columnCounts.set(layer, row + 1);
+      const row = rows.get(node.id) ?? 0;
       return {
         id: node.id,
         type: node.type,
-        position: { x: 80 + layer * 280, y: 100 + row * 170 },
+        position: { x: 80 + layer * 280, y: 100 + row * 180 },
         data: { label: node.name, config: cloneJsonObject(node.config) as Record<string, unknown> },
       };
     }),
@@ -299,12 +300,114 @@ function computeLayers(workflow: WorkflowDefinition): Map<string, number> {
       queue.push(edge.target);
     }
   }
+  // DFS 标记回边（环），随后在无环边集上做 Kahn 拓扑松弛：
+  // 节点层级取最长路径深度，保证排在所有前驱的右侧
+  const backEdges = new Set<number>();
+  const state = new Map<string, 'visiting' | 'done'>();
+  const mark = (id: string): void => {
+    state.set(id, 'visiting');
+    for (const [index, edge] of workflow.edges.entries()) {
+      if (edge.source !== id || !layers.has(edge.target)) continue;
+      if (state.get(edge.target) === 'visiting') backEdges.add(index);
+      else if (!state.has(edge.target)) mark(edge.target);
+    }
+    state.set(id, 'done');
+  };
+  mark(start.id);
+  const placedEdges = workflow.edges
+    .map((edge, index) => ({ edge, index }))
+    .filter(({ edge, index }) => layers.has(edge.source) && layers.has(edge.target) && !backEdges.has(index));
+  const inDegree = new Map<string, number>();
+  for (const { edge } of placedEdges) inDegree.set(edge.target, (inDegree.get(edge.target) ?? 0) + 1);
+  const ready = [...layers.keys()].filter((id) => !inDegree.get(id));
+  while (ready.length) {
+    const current = ready.shift() as string;
+    const depth = layers.get(current) as number;
+    for (const { edge } of placedEdges) {
+      if (edge.source !== current) continue;
+      if ((layers.get(edge.target) as number) < depth + 1) layers.set(edge.target, depth + 1);
+      const remaining = (inDegree.get(edge.target) as number) - 1;
+      inDegree.set(edge.target, remaining);
+      if (remaining === 0) ready.push(edge.target);
+    }
+  }
   const unplaced = workflow.nodes.filter((node) => !layers.has(node.id));
   if (unplaced.length) {
     const next = Math.max(0, ...layers.values()) + 1;
     for (const node of unplaced) layers.set(node.id, next);
   }
   return layers;
+}
+
+function forwardEdges(workflow: WorkflowDefinition, layers: Map<string, number>) {
+  return workflow.edges.filter((edge) => {
+    const source = layers.get(edge.source);
+    const target = layers.get(edge.target);
+    return source !== undefined && target !== undefined && target > source;
+  });
+}
+
+function computeRows(workflow: WorkflowDefinition, layers: Map<string, number>): Map<string, number> {
+  const rows = new Map<string, number>();
+  if (!layers.size) return rows;
+  const children = new Map<string, string[]>();
+  for (const edge of forwardEdges(workflow, layers)) {
+    const list = children.get(edge.source) ?? [];
+    if (!list.includes(edge.target)) list.push(edge.target);
+    children.set(edge.source, list);
+  }
+  const declaration = new Map(workflow.nodes.map((node, index) => [node.id, index] as const));
+  let cursor = 0;
+  const visit = (id: string): number => {
+    const existing = rows.get(id);
+    if (existing !== undefined) return existing;
+    const kids = children.get(id) ?? [];
+    if (!kids.length) {
+      rows.set(id, cursor);
+      cursor += 1;
+      return cursor - 1;
+    }
+    const childRows = kids.map(visit);
+    const row = Math.floor(childRows.reduce((sum, value) => sum + value, 0) / childRows.length);
+    rows.set(id, row);
+    return row;
+  };
+  const start = workflow.nodes.find((node) => node.type === 'start' && layers.has(node.id));
+  if (start) visit(start.id);
+  for (const node of workflow.nodes) visit(node.id);
+
+  // 自底向上：父节点行号取子节点行号均值，同层冲突时向下挤压
+  const byLayer = new Map<number, WorkflowNode[]>();
+  for (const node of workflow.nodes) {
+    const layer = layers.get(node.id) ?? 0;
+    const list = byLayer.get(layer) ?? [];
+    list.push(node);
+    byLayer.set(layer, list);
+  }
+  const finalRows = new Map<string, number>(rows);
+  for (const layer of [...byLayer.keys()].sort((a, b) => b - a)) {
+    const nodes = byLayer.get(layer) as WorkflowNode[];
+    const desired = new Map<string, number>();
+    for (const node of nodes) {
+      const kids = children.get(node.id) ?? [];
+      const row = kids.length
+        ? Math.floor(kids.reduce((sum, kid) => sum + (finalRows.get(kid) ?? 0), 0) / kids.length)
+        : (finalRows.get(node.id) ?? 0);
+      desired.set(node.id, row);
+    }
+    const sorted = [...nodes].sort(
+      (a, b) =>
+        (desired.get(a.id) ?? 0) - (desired.get(b.id) ?? 0) ||
+        (declaration.get(a.id) ?? 0) - (declaration.get(b.id) ?? 0),
+    );
+    let last = -1;
+    for (const node of sorted) {
+      const row = Math.max(desired.get(node.id) ?? 0, last + 1);
+      finalRows.set(node.id, row);
+      last = row;
+    }
+  }
+  return finalRows;
 }
 
 export function serializeWorkflow(workflow: WorkflowDefinition): string {

@@ -250,7 +250,7 @@ export const documentQualityDemo: WorkflowDefinition = {
   version: 1,
   variables: { outputFile: 'output/revised-requirement.txt' },
   inputs: [
-    { name: 'filePath', label: '输入文档路径', type: 'string', required: true, description: '工作空间内的相对路径，例如 input/requirement.txt。' },
+    { name: 'filePath', label: '输入文档路径', type: 'string', required: true, description: '工作空间内的相对路径，例如 input/requirement.txt。', defaultValue: 'input/requirement.txt' },
     { name: 'documentType', label: '文档类型', type: 'string', required: false, description: '文档所属类型。', defaultValue: '产品需求文档' },
     { name: 'outputFile', label: '修改稿路径', type: 'string', required: false, description: '工作空间内的相对输出路径。', defaultValue: 'output/revised-requirement.txt' },
   ],

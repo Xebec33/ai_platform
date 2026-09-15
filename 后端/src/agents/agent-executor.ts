@@ -39,28 +39,30 @@ export class ProviderAgentExecutor implements AgentExecutor {
     const execution = createChildAbortController(context.signal);
     try {
       const provider = this.providers.resolve(config.provider, config.model);
-      const tools = context.toolRegistry;
+      const tools = config.useTools ? context.toolRegistry : undefined;
       let toolHistory: ModelToolRound[] = [];
       let toolCalls = 0;
-      let response = await withTimeout(
-        provider.complete({
-          model: config.model,
-          systemPrompt: systemPromptFor(config),
-          input: context.input,
-          outputFormat: config.outputFormat,
-          outputSchema: config.outputSchema,
-          temperature: config.temperature,
-          maxTokens: config.maxTokens,
-          mockRole: config.mockRole,
-          nodeMockOutput: objectValue(context.node.config.mockOutput),
-          tools: tools?.list(),
-          toolHistory,
-          signal: execution.signal,
-        }),
-        timeoutMs,
-        execution.controller,
-        execution.signal,
-      );
+      const complete = () =>
+        withTimeout(
+          provider.complete({
+            model: config.model,
+            systemPrompt: systemPromptFor(config),
+            input: context.input,
+            outputFormat: config.outputFormat,
+            outputSchema: config.outputSchema,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens,
+            mockRole: config.mockRole,
+            nodeMockOutput: objectValue(context.node.config.mockOutput),
+            tools: tools?.list(),
+            toolHistory,
+            signal: execution.signal,
+          }),
+          timeoutMs,
+          execution.controller,
+          execution.signal,
+        );
+      let response = await complete();
       for (let round = 0; response.toolCalls?.length; round += 1) {
         if (!tools || !context.workspaceRoot)
           throw new AgentExecutionError(
@@ -100,25 +102,7 @@ export class ProviderAgentExecutor implements AgentExecutor {
           });
         }
         toolHistory = [...toolHistory, { toolCalls: [...response.toolCalls], toolResults: results }];
-        response = await withTimeout(
-          provider.complete({
-            model: config.model,
-            systemPrompt: systemPromptFor(config),
-            input: context.input,
-            outputFormat: config.outputFormat,
-            outputSchema: config.outputSchema,
-            temperature: config.temperature,
-            maxTokens: config.maxTokens,
-            mockRole: config.mockRole,
-            nodeMockOutput: objectValue(context.node.config.mockOutput),
-            tools: tools.list(),
-            toolHistory,
-            signal: execution.signal,
-          }),
-          timeoutMs,
-          execution.controller,
-          execution.signal,
-        );
+        response = await complete();
       }
       const output = parseOutput(response.content, config.outputSchema, config.outputFormat);
       return {

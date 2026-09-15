@@ -111,6 +111,7 @@ describe('ProviderAgentExecutor', () => {
     });
     const node = agentNode();
     node.config.outputSchema = { type: 'object' };
+    node.config.useTools = true;
     const executor = new ProviderAgentExecutor({
       providers: new ModelProviderRegistry([provider]),
     });

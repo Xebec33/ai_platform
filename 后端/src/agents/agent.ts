@@ -18,6 +18,7 @@ export interface AgentConfig {
   maxTokens?: number;
   timeout?: number;
   outputKey?: string;
+  useTools?: boolean;
 }
 
 export interface AgentInput {
@@ -92,6 +93,7 @@ export function agentConfigFromNode(node: AgentNode): AgentConfig {
     maxTokens: asNumber(node.config.maxTokens),
     timeout: asNumber(node.config.timeout),
     outputKey: node.outputKey ?? node.config.outputKey,
+    useTools: node.config.useTools === true,
   };
 }
 
