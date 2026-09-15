@@ -134,6 +134,22 @@ function addToolInput(): void {
   while (toolInput.value[base + index] !== undefined) index += 1;
   store.updateToolInput(base + index, '');
 }
+function renameToolInput(key: string, input: HTMLInputElement): void {
+  const trimmed = input.value.trim();
+  if (!trimmed || trimmed === key || toolInput.value[trimmed] !== undefined) {
+    input.value = key;
+    return;
+  }
+  const next: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(toolInput.value)) next[k === key ? trimmed : k] = v;
+  const descriptions = { ...toolInputDescriptions.value };
+  if (descriptions[key] !== undefined) {
+    descriptions[trimmed] = descriptions[key];
+    delete descriptions[key];
+  }
+  store.updateSelectedConfig('input', next);
+  store.updateSelectedConfig('inputDescriptions', descriptions);
+}
 function removeToolInput(key: string): void {
   const next = { ...toolInput.value };
   delete next[key];
@@ -232,7 +248,7 @@ async function runCurrentWorkflow(): Promise<void> {
             <label>参数<input :value="String(selectedConfig.parameter ?? '')" placeholder="variables.approved" @input="store.updateSelectedConfig('parameter', ($event.target as HTMLInputElement).value)" /></label><label>条件关系<select :value="String(selectedConfig.relation ?? 'equals')" @change="store.updateSelectedConfig('relation', ($event.target as HTMLSelectElement).value)"><option v-for="relation in relations" :key="relation.value" :value="relation.value">{{ relation.label }}</option></select></label><label>比较值<input :value="String(selectedConfig.comparisonValue ?? '')" @input="store.updateSelectedConfig('comparisonValue', ($event.target as HTMLInputElement).value)" /></label><p class="config-hint">下方两个输出点分别代表“满足”和“不满足”。</p>
           </template>
           <template v-else-if="selectedType === 'tool'">
-            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><label>输出参数描述<input :value="String(selectedConfig.outputKeyDescription ?? '')" placeholder="工具输出结果的含义（可选）" @input="store.updateSelectedConfig('outputKeyDescription', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="param-item"><div class="field-row"><span class="field-key">{{ key }}</span><input :value="String(value ?? '')" @input="updateToolEntry(key, ($event.target as HTMLInputElement).value)" /><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div><input class="param-description" :value="toolInputDescriptions[key] ?? ''" placeholder="描述（该输入参数的含义）" @input="updateToolEntryDescription(key, ($event.target as HTMLInputElement).value)" /></div></div>
+            <label>工具<select :value="String(selectedConfig.toolName ?? 'file_read')" @change="store.updateSelectedConfig('toolName', ($event.target as HTMLSelectElement).value)"><option v-for="tool in tools" :key="tool.name" :value="tool.name">{{ tool.label }}（{{ tool.name }}）</option></select></label><label>输出参数名<input :value="String(selectedConfig.outputKey ?? '')" placeholder="toolResult" @input="store.updateSelectedConfig('outputKey', ($event.target as HTMLInputElement).value)" /></label><label>输出参数描述<input :value="String(selectedConfig.outputKeyDescription ?? '')" placeholder="工具输出结果的含义（可选）" @input="store.updateSelectedConfig('outputKeyDescription', ($event.target as HTMLInputElement).value)" /></label><div class="field-list"><div class="field-list__header"><strong>输入参数</strong><button type="button" class="button button--small" @click="addToolInput">新增参数</button></div><div v-for="(value, key) in toolInput" :key="key" class="param-item"><div class="field-row"><input class="field-key-input" :value="key" spellcheck="false" aria-label="参数名" @change="renameToolInput(key, $event.target as HTMLInputElement)" /><input :value="String(value ?? '')" @input="updateToolEntry(key, ($event.target as HTMLInputElement).value)" /><button type="button" class="icon-button" @click="removeToolInput(key)">×</button></div><input class="param-description" :value="toolInputDescriptions[key] ?? ''" placeholder="描述（该输入参数的含义）" @input="updateToolEntryDescription(key, ($event.target as HTMLInputElement).value)" /></div></div>
           </template>
           <template v-else-if="selectedType === 'loop'">
             <label>最大迭代次数<input type="number" min="1" step="1" :value="Number(selectedConfig.maxIterations ?? 3)" @input="updateNumber('maxIterations', $event)" /></label>

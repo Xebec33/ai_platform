@@ -515,6 +515,11 @@ h1 {
   white-space: nowrap;
 }
 
+.field-key-input {
+  font-size: 12px;
+  color: #aab7d8;
+}
+
 .param-item {
   display: grid;
   gap: 5px;
