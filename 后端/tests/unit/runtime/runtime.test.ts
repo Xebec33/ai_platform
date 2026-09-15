@@ -74,7 +74,7 @@ describe('WorkflowRuntime', () => {
   it('uses the default ModelProvider-backed Agent executor', async () => {
     const result = await createWorkflowRuntime(workflow()).run({ variables: { prompt: 'hello' } });
     expect(result.status).toBe('SUCCESS');
-    expect(result.output).toEqual({ response: 'Mock response: {"prompt":"hello"}' });
+    expect(result.output).toEqual({ text: 'Mock response: {"prompt":"hello"}' });
   });
 
   it('records classified Agent errors in NodeRun', async () => {

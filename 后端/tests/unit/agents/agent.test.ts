@@ -26,7 +26,7 @@ describe('ProviderAgentExecutor', () => {
       variables: { query: 'Explain RAG' },
       nodeOutputs: {},
     });
-    expect(result.output).toEqual({ response: 'RAG is retrieval augmented generation.' });
+    expect(result.output).toEqual({ text: 'RAG is retrieval augmented generation.' });
     expect(result.rawText).toContain('retrieval');
     expect(requests[0]).toMatchObject({ input: 'Explain RAG', model: 'gpt-4o-mini' });
   });

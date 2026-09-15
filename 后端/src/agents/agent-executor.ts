@@ -138,7 +138,7 @@ function parseOutput(
   schema: JsonObject | undefined,
   outputFormat: 'text' | 'json' | undefined,
 ): JsonObject {
-  if (outputFormat !== 'json' && !schema) return { response: content };
+  if (outputFormat !== 'json' && !schema) return { text: content };
   try {
     const value = parseJsonContent(content);
     if (isObject(value)) return value;

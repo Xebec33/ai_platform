@@ -10,7 +10,8 @@ import { useWorkflowEditorStore } from '../../stores/workflow-editor';
 
 const emit = defineEmits<{ runStarted: [runId: string] }>();
 const store = useWorkflowEditorStore();
-const { fitView } = useVueFlow();
+const FLOW_ID = 'workflow-editor';
+const { fitView } = useVueFlow(FLOW_ID);
 const running = ref(false);
 const demos = ref<Array<{ id: string; name: string }>>([]);
 const selectedDemoId = ref('');
@@ -78,16 +79,15 @@ const relations = [
 onMounted(async () => {
   // VueFlow 挂载时会暂停 model watcher 直到 nextTick，同步替换节点数组会被吞掉，
   // 必须等 watcher 恢复后再恢复本地存储的图
-  await nextTick();
-  const restored = store.initialize();
-  if (restored) {
-    await nextTick();
-    await fitView({ padding: 0.2, duration: 300 });
-  }
   try {
     demos.value = await listWorkflowDemos();
   } catch {
     demos.value = [];
+  }
+  await nextTick();
+  if (store.initialize()) {
+    await nextTick();
+    void fitView({ padding: 0.2, duration: 300 }).catch(() => {});
   }
 });
 async function loadDemo(): Promise<void> {
@@ -160,13 +160,17 @@ const upstreamParamGroups = computed<Array<{ label: string; options: Array<{ val
         options.push({ value: '{{variables.' + parameter.name + '}}', label: parameter.name });
       }
     } else if (node.type === 'agent') {
-      const fields = Array.isArray(node.data.config.outputFields)
-        ? (node.data.config.outputFields as Array<{ name?: unknown; description?: unknown }>)
-        : [];
-      for (const field of fields) {
-        if (typeof field.name !== 'string' || !field.name) continue;
-        const description = typeof field.description === 'string' && field.description ? '（' + field.description + '）' : '';
-        options.push({ value: '{{nodes.' + node.id + '.' + field.name + '}}', label: field.name + description });
+      if (node.data.config.outputFormat === 'json') {
+        const fields = Array.isArray(node.data.config.outputFields)
+          ? (node.data.config.outputFields as Array<{ name?: unknown; description?: unknown }>)
+          : [];
+        for (const field of fields) {
+          if (typeof field.name !== 'string' || !field.name) continue;
+          const description = typeof field.description === 'string' && field.description ? '（' + field.description + '）' : '';
+          options.push({ value: '{{nodes.' + node.id + '.' + field.name + '}}', label: field.name + description });
+        }
+      } else {
+        options.push({ value: '{{nodes.' + node.id + '.text}}', label: 'text' });
       }
     } else if (node.type === 'tool') {
       const fields = toolOutputFields[String(node.data.config.toolName ?? '')] ?? [];
@@ -283,7 +287,7 @@ async function runCurrentWorkflow(): Promise<void> {
         <button v-for="option in nodeOptions" :key="option.type" type="button" class="palette-item" @click="store.addNode(option.type)"><span class="palette-icon">{{ option.label.slice(0, 1) }}</span><span><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></span></button>
       </aside>
       <section class="flow-panel">
-        <VueFlow v-model:nodes="store.nodes" v-model:edges="store.edges" :node-types="nodeTypes" :connection-mode="ConnectionMode.Strict" fit-view-on-init @connect="onConnect" @node-click="onNodeClick" @pane-click="store.clearSelection" />
+        <VueFlow :id="FLOW_ID" v-model:nodes="store.nodes" v-model:edges="store.edges" :node-types="nodeTypes" :connection-mode="ConnectionMode.Strict" fit-view-on-init @connect="onConnect" @node-click="onNodeClick" @pane-click="store.clearSelection" />
         <div v-if="store.error" class="editor-toast editor-toast--error">{{ store.error }}</div><div v-else-if="store.message" class="editor-toast">{{ store.message }}</div>
       </section>
       <aside class="config-panel">
@@ -295,6 +299,7 @@ async function runCurrentWorkflow(): Promise<void> {
             <label>提示词<textarea :value="String(selectedConfig.systemPrompt ?? '')" rows="5" @input="store.updateSelectedConfig('systemPrompt', ($event.target as HTMLTextAreaElement).value)" /></label>
             <label>输出格式<select :value="String(selectedConfig.outputFormat ?? 'text')" @change="store.updateSelectedConfig('outputFormat', ($event.target as HTMLSelectElement).value)"><option value="text">文本</option><option value="json">JSON</option></select></label>
             <div v-if="selectedConfig.outputFormat === 'json'" class="field-list"><div class="field-list__header"><strong>JSON 输出参数</strong><button type="button" class="button button--small" @click="store.addAgentOutputField">新增参数</button></div><div v-for="(field, index) in outputFields" :key="index" class="param-item"><div class="field-row"><input :value="field.name ?? ''" placeholder="参数名称" @input="updateField(index, 'name', ($event.target as HTMLInputElement).value)" /><select :value="field.type ?? 'string'" @change="updateField(index, 'type', ($event.target as HTMLSelectElement).value)"><option v-for="type in outputTypes" :key="type" :value="type">{{ type }}</option></select><button type="button" class="icon-button" @click="store.removeAgentOutputField(index)">×</button></div><input class="param-description" :value="field.description ?? ''" placeholder="描述（供 Agent 理解该参数含义）" @input="updateField(index, 'description', ($event.target as HTMLInputElement).value)" /></div></div>
+            <div v-else class="field-list"><div class="field-list__header"><strong>输出参数</strong></div><div class="param-item"><div class="field-row"><input value="text" disabled aria-label="参数名" /><input value="String" disabled aria-label="参数类型" /></div><p class="config-hint">文本输出固定写入 text 参数（String），名称与类型不可修改。</p></div></div>
             <label>模型<input :value="String(selectedConfig.model ?? '')" @input="store.updateSelectedConfig('model', ($event.target as HTMLInputElement).value)" /></label><label>Temperature<input type="number" min="0" max="2" step="0.1" :value="Number(selectedConfig.temperature ?? 0.7)" @input="updateNumber('temperature', $event)" /></label><label>Max Tokens<input type="number" min="1" step="1" :value="Number(selectedConfig.maxTokens ?? 2048)" @input="updateNumber('maxTokens', $event)" /></label>
           </template>
           <template v-else-if="selectedType === 'condition'">
