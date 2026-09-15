@@ -29,12 +29,16 @@ const formatSize = (size?: number): string => {
 };
 
 const sortedFiles = computed(() => {
-  const depth = (path: string): number => path.split('/').length;
+  const segments = (path: string): string[] => path.split('/');
   return [...files.value].sort((a, b) => {
-    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-    const depthDiff = depth(a.path) - depth(b.path);
-    if (depthDiff !== 0) return depthDiff;
-    return a.path.localeCompare(b.path);
+    const sa = segments(a.path);
+    const sb = segments(b.path);
+    const shared = Math.min(sa.length, sb.length);
+    for (let i = 0; i < shared; i++) {
+      if (sa[i] === sb[i]) continue;
+      return (sa[i] as string).localeCompare(sb[i] as string);
+    }
+    return sa.length - sb.length;
   });
 });
 
