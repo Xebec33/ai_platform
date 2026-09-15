@@ -124,6 +124,7 @@ export interface WorkflowUiEdge {
 export interface WorkflowUiGraph {
   id?: string;
   name?: string;
+  version?: 1;
   nodes: WorkflowUiNode[];
   edges: WorkflowUiEdge[];
   variables?: JsonObject;
@@ -259,6 +260,7 @@ export function workflowToUiGraph(workflow: WorkflowDefinition): WorkflowUiGraph
   return {
     id: workflow.id,
     name: workflow.name,
+    version: 1 as const,
     nodes: workflow.nodes.map((node) => {
       const layer = layers.get(node.id) ?? 0;
       const row = columnCounts.get(layer) ?? 0;
