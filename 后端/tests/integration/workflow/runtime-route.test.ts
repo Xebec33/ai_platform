@@ -28,7 +28,11 @@ describe('POST /workflows/run', () => {
 
   it('validates required input variables before running a workflow', async () => {
     app = await createApp();
-    const response = await app.inject({ method: 'POST', url: '/workflows/run', payload: { workflow: ticketRoutingDemo, variables: { userId: 'u-1' } } });
+    const noDefaults = {
+      ...ticketRoutingDemo,
+      inputs: ticketRoutingDemo.inputs.map((input) => ({ ...input, defaultValue: undefined })),
+    };
+    const response = await app.inject({ method: 'POST', url: '/workflows/run', payload: { workflow: noDefaults, variables: { userId: 'u-1' } } });
     expect(response.statusCode).toBe(422);
     expect(response.json()).toMatchObject({ status: 'FAILED', errorCode: 'MISSING_INPUT_VARIABLE' });
   });

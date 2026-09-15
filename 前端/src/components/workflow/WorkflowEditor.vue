@@ -57,10 +57,12 @@ const tools = [
   { name: 'search', label: '内容搜索', hint: '搜索 workspace 文本内容' },
 ];
 const outputTypes = ['string', 'number', 'boolean', 'object', 'array'];
-const runtimeInputs = computed(() =>
-  store.graph.inputs.filter((input) => input.required !== false && String(store.inputValues[input.name] ?? '').trim() === '' && input.defaultValue === undefined),
+const missingRequiredInputs = computed(() =>
+  store.graph.inputs
+    .filter((input) => input.required !== false && String(store.inputValues[input.name] ?? '').trim() === '' && input.defaultValue === undefined)
+    .map((input) => input.label ?? input.name),
 );
-const missingRequiredInputs = computed(() => runtimeInputs.value.map((input) => input.label ?? input.name));
+const showMissingInputsModal = ref(false);
 const relations = [
   { value: 'equals', label: '等于' },
   { value: 'not_equals', label: '不等于' },
@@ -120,11 +122,16 @@ function removeToolInput(key: string): void {
   delete next[key];
   store.updateSelectedConfig('input', next);
 }
+function goToStartInputs(): void {
+  showMissingInputsModal.value = false;
+  const start = store.nodes.find((node) => node.type === 'start');
+  if (start) store.selectNode(start.id);
+}
+
 async function runCurrentWorkflow(): Promise<void> {
   store.error = '';
   if (!store.validation.valid) { store.error = store.validation.issues.map((issue) => issue.message).join('；'); return; }
-  const missing = missingRequiredInputs.value;
-  if (missing.length) { store.error = '请先填写运行输入：' + missing.join('、'); return; }
+  if (missingRequiredInputs.value.length) { showMissingInputsModal.value = true; return; }
   store.save();
   running.value = true;
   try {
@@ -142,17 +149,6 @@ async function runCurrentWorkflow(): Promise<void> {
     <header class="editor-header">
       <div><p class="eyebrow">PHASE 1 · WORKFLOW EDITOR</p><h1>{{ store.workflowName }}</h1><p class="editor-subtitle">可视化编排 Workflow，修改会自动保存</p></div>
       <div class="editor-actions">
-        <div v-if="runtimeInputs.length" class="runtime-inputs">
-          <span class="runtime-inputs__label">运行输入</span>
-          <label v-for="input in runtimeInputs" :key="input.name" class="runtime-input">
-            <span class="runtime-input__name">{{ input.label ?? input.name }}</span>
-            <input
-              :value="String(store.inputValues[input.name] ?? '')"
-              :placeholder="input.type === 'string' ? '文本' : input.type"
-              @input="store.updateInputValue(input.name, ($event.target as HTMLInputElement).value)"
-            />
-          </label>
-        </div>
         <input v-model="store.workflowName" class="workflow-name-input" aria-label="Workflow 名称" />
         <span class="autosave-status">{{ store.autosavePending ? '保存中...' : store.savedAt ? `已保存 ${store.savedAt}` : '未保存' }}</span>
         <button type="button" class="button button--primary" @click="store.save()">保存</button>
@@ -228,5 +224,18 @@ async function runCurrentWorkflow(): Promise<void> {
       </aside>
     </div>
     <div v-if="showJson" class="json-modal" role="dialog" aria-modal="true"><div class="json-card"><div class="panel-heading"><span>Workflow JSON</span><button type="button" class="icon-button" @click="showJson = false">关闭</button></div><textarea v-model="jsonText" rows="18" spellcheck="false" /><div class="json-actions"><button type="button" class="button" @click="jsonText = serializeWorkflowGraph(store.graph)">导出当前</button><button type="button" class="button button--primary" @click="importJson">加载 JSON</button></div></div></div>
+    <div v-if="showMissingInputsModal" class="json-modal" role="dialog" aria-modal="true">
+      <div class="json-card">
+        <div class="panel-heading"><span>请填写必填项</span><button type="button" class="icon-button" @click="showMissingInputsModal = false">关闭</button></div>
+        <p class="missing-inputs-hint">以下运行输入尚未填写：</p>
+        <ul class="missing-inputs-list">
+          <li v-for="name in missingRequiredInputs" :key="name">{{ name }}</li>
+        </ul>
+        <div class="json-actions">
+          <button type="button" class="button" @click="showMissingInputsModal = false">关闭</button>
+          <button type="button" class="button button--primary" @click="goToStartInputs">去填写</button>
+        </div>
+      </div>
+    </div>
   </main>
 </template>

@@ -67,9 +67,9 @@ export const ticketRoutingDemo: WorkflowDefinition = {
   version: 1,
   variables: {},
   inputs: [
-    { name: 'userId', label: '用户 ID', type: 'string', required: true },
-    { name: 'message', label: '客服问题', type: 'string', required: true },
-    { name: 'orderId', label: '订单号', type: 'string', required: false },
+    { name: 'userId', label: '用户 ID', type: 'string', required: true, defaultValue: 'u-1001' },
+    { name: 'message', label: '客服问题', type: 'string', required: true, defaultValue: '我的订单什么时候发货？' },
+    { name: 'orderId', label: '订单号', type: 'string', required: false, defaultValue: 'ORD-8829' },
   ],
   nodes: [
     {
@@ -163,7 +163,7 @@ export const orderDiagnosisDemo: WorkflowDefinition = {
   name: 'Demo｜订单异常诊断与处理',
   version: 1,
   variables: {},
-  inputs: [{ name: 'orderId', label: '订单号', type: 'string', required: true }],
+  inputs: [{ name: 'orderId', label: '订单号', type: 'string', required: true, defaultValue: 'ORD-8829' }],
   nodes: [
     {
       id: 'start-1',
@@ -331,7 +331,7 @@ export const loopEngineeringDemo: WorkflowDefinition = {
   version: 1,
   variables: { fixed: false },
   inputs: [
-    { name: 'task', label: '开发任务', type: 'string', required: true, description: 'Coding Agent 要完成的任务描述。' },
+    { name: 'task', label: '开发任务', type: 'string', required: true, description: 'Coding Agent 要完成的任务描述。', defaultValue: '在 README.md 末尾追加一行当前时间戳（可用 date 命令）' },
   ],
   nodes: [
     {

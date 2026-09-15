@@ -199,38 +199,18 @@ h1 {
   gap: 8px;
 }
 
-.runtime-inputs {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px dashed rgba(255, 193, 84, 0.4);
-  border-radius: 9px;
-  background: rgba(255, 193, 84, 0.06);
-}
-.runtime-inputs__label {
-  color: #ffc154;
-  font-size: 12px;
-  font-weight: 600;
-}
-.runtime-input {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.runtime-input__name {
+.missing-inputs-hint {
   color: #b8c4e2;
-  font-size: 12px;
-  white-space: nowrap;
+  font-size: 13px;
+  margin: 4px 0 8px;
 }
-.runtime-input input {
-  width: 140px;
-  padding: 7px 10px;
-  border: 1px solid rgba(181, 194, 255, 0.2);
-  border-radius: 8px;
-  color: #e8eefc;
-  background: rgba(7, 12, 28, 0.6);
+.missing-inputs-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: #ffc154;
+}
+.missing-inputs-list li {
+  margin: 4px 0;
 }
 
 .workflow-name-input {
