@@ -28,6 +28,7 @@ export async function registerWorkspaceRoutes(
   const root = options.workspaceRoot;
   const maxFiles = options.maxFiles ?? 500;
   const maxFileBytes = options.maxFileBytes ?? 512 * 1024;
+  await seedDemoInputs(root);
 
   app.get('/workspace/files', async (_request, reply) => {
     try {
@@ -152,4 +153,36 @@ function workspaceError(reply: FastifyReply, error: unknown) {
       code: error.code,
     });
   return reply.code(500).send({ error: '访问 workspace 失败' });
+}
+
+// workspace 是运行时数据（git 不跟踪），首次启动时补种 demo 输入文件
+const DEMO_INPUTS: Readonly<Record<string, string>> = {
+  'input/requirement.txt': [
+    '会员积分系统需求文档',
+    '',
+    '一、功能需求',
+    '用户在完成订单后可以获得相应积分，积分累积达到一定数量后可以兑换礼品。',
+    '用户可以在个人中心查看自己的积分余额和积分明细。',
+    '',
+    '二、非功能需求',
+    '积分服务需要保证高可用，积分数据不能丢失。',
+    '',
+  ].join('\n'),
+  'input/bad-requirement.txt': '需求\n',
+};
+
+async function seedDemoInputs(root: string): Promise<void> {
+  try {
+    for (const [relative, content] of Object.entries(DEMO_INPUTS)) {
+      const target = path.join(root, relative);
+      try {
+        await stat(target);
+      } catch {
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, content, 'utf8');
+      }
+    }
+  } catch {
+    // workspace 不可写时跳过补种，不影响服务启动
+  }
 }

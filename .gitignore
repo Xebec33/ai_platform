@@ -11,6 +11,6 @@ coverage/
 .ai-workflow-workspaces/
 
 # Demo 运行时产物（用户交互文件），不跟踪
-后端/data/output/
+后端/data/
 后端/test.txt
 开源参考/

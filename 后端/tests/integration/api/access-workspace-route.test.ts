@@ -92,4 +92,23 @@ describe('workspace file routes', () => {
     const response = await app.inject({ method: 'GET', url: '/workspace/file?path=../outside.txt' });
     expect(response.statusCode).toBe(403);
   });
+
+  it('seeds demo inputs into an empty workspace without overwriting user edits', async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-ws-'));
+    await mkdir(path.join(workspace, 'input'));
+    await writeFile(path.join(workspace, 'input', 'requirement.txt'), '用户自定义内容');
+
+    app = await createApp({ workspaceRoot: workspace, monitor: null });
+    const list = await app.inject({ method: 'GET', url: '/workspace/files' });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'input/requirement.txt', type: 'file' }),
+        expect.objectContaining({ path: 'input/bad-requirement.txt', type: 'file' }),
+      ]),
+    );
+
+    const file = await app.inject({ method: 'GET', url: '/workspace/file?path=input/requirement.txt' });
+    expect(file.json()).toMatchObject({ content: '用户自定义内容' });
+  });
 });
