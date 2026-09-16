@@ -17,8 +17,11 @@ import {
 describe('workflow graph', () => {
   it('keeps the Loop Engineering demo runnable through a full editor round-trip', () => {
     const uiGraph = workflowToUiGraph(loopEngineeringDemo);
-    const flow = graphToVueFlow(uiGraph);
-    const back = vueFlowToGraph(flow.nodes, flow.edges, { id: uiGraph.id, name: uiGraph.name });
+    const flow = graphToVueFlow(uiGraph as never);
+    const back = vueFlowToGraph(flow.nodes, flow.edges, {
+      id: uiGraph.id ?? 'wf-loop-trace',
+      name: uiGraph.name ?? 'trace',
+    });
     expect(validateWorkflowGraph(back).valid).toBe(true);
     const workflow = uiGraphToWorkflow(back, { id: 'wf-loop-trace', name: 'trace' });
     expect(validateWorkflow(workflow).valid).toBe(true);
