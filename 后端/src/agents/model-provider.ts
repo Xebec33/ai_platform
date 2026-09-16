@@ -46,6 +46,7 @@ export interface ModelResponse {
   content: string;
   usage?: TokenUsage;
   toolCalls?: ReadonlyArray<ModelToolCall>;
+  finishReason?: string;
 }
 
 export interface ModelProvider {

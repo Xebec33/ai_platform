@@ -76,7 +76,7 @@ describe('workflow graph', () => {
       systemPrompt: expect.any(String),
       outputFormat: 'text',
       temperature: 0.7,
-      maxTokens: 2048,
+      maxTokens: 8192,
     });
     const start = flow.nodes.find((node) => node.id === 'start-1');
     expect(start?.data.config.inputParameters).toEqual([

@@ -132,6 +132,28 @@ describe('ProviderAgentExecutor', () => {
     expect((error as AgentExecutionError).message).toContain('still not json');
   });
 
+  it('reports truncation without retrying when finish_reason is length', async () => {
+    const node = agentNode();
+    node.config.outputSchema = { type: 'object', properties: { passed: { type: 'boolean' } } };
+    node.config.maxTokens = 2048;
+    let call = 0;
+    const executor = new ProviderAgentExecutor({
+      providers: new ModelProviderRegistry([
+        new MockModelProvider(() => {
+          call += 1;
+          return { content: '', finishReason: 'length', usage: { completionTokens: 2048 } };
+        }),
+      ]),
+    });
+    await expect(
+      executor.execute({ node, input: 'review', variables: {}, nodeOutputs: {} }),
+    ).rejects.toMatchObject<Partial<AgentExecutionError>>({
+      code: 'LLM_OUTPUT_TRUNCATED',
+      message: expect.stringContaining('maxTokens=2048'),
+    });
+    expect(call).toBe(1);
+  });
+
   it('executes provider tool calls and sends tool results back to the provider', async () => {
     const root = await (await import('node:fs/promises')).mkdtemp('/tmp/ai-workflow-agent-');
     await (await import('node:fs/promises')).writeFile(`${root}/note.txt`, 'from tool');

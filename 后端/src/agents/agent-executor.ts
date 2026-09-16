@@ -108,6 +108,7 @@ export class ProviderAgentExecutor implements AgentExecutor {
         response,
         () => complete(REPARSE_HINT),
         (content) => parseOutput(content, config.outputSchema, config.outputFormat),
+        config.maxTokens,
       );
       return {
         output: parsed.output,
@@ -144,18 +145,34 @@ async function parseWithRetry(
   initial: ModelResponse,
   reask: () => Promise<ModelResponse>,
   parse: (content: string) => JsonObject,
+  maxTokens?: number,
 ): Promise<{ output: JsonObject; response: ModelResponse }> {
+  assertNotTruncated(initial, maxTokens);
   try {
     return { output: parse(initial.content), response: initial };
   } catch (error) {
     if (!(error instanceof AgentExecutionError) || error.code !== 'PARSING_ERROR') throw error;
   }
   const response = await reask();
+  assertNotTruncated(response, maxTokens);
   try {
     return { output: parse(response.content), response };
   } catch (error) {
     throw detailedParsingError(response.content, error);
   }
+}
+
+function assertNotTruncated(response: ModelResponse, maxTokens?: number): void {
+  if (response.finishReason !== 'length') return;
+  const cap = maxTokens !== undefined ? `（maxTokens=${maxTokens}）` : '';
+  const usage = response.usage?.completionTokens !== undefined
+    ? `，本次输出共消耗 ${response.usage.completionTokens} tokens`
+    : '';
+  throw new AgentExecutionError(
+    'LLM_OUTPUT_TRUNCATED',
+    `模型输出被截断${cap}${usage}：推理型模型会先消耗思考 token，预算不足时正文为空或被拦腰截断。请调大该 Agent 节点的 maxTokens。`,
+    false,
+  );
 }
 
 function detailedParsingError(content: string, cause: unknown): AgentExecutionError {

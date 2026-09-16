@@ -19,6 +19,7 @@ export interface OpenAICompatibleProviderOptions {
 
 interface ChatCompletionResponse {
   choices?: Array<{
+    finish_reason?: unknown;
     message?: {
       content?: unknown;
       tool_calls?: Array<{
@@ -190,7 +191,8 @@ async function parseJsonResponse(response: Response): Promise<ChatCompletionResp
 }
 
 function toModelResponse(payload: ChatCompletionResponse): ModelResponse {
-  const message = payload.choices?.[0]?.message;
+  const choice = payload.choices?.[0];
+  const message = choice?.message;
   if (!message) throw new ModelProviderError('Provider 响应缺少 choices[0].message', true);
   const content = typeof message.content === 'string' ? message.content : '';
   const toolCalls = (message.tool_calls ?? []).flatMap((call, index) => {
@@ -206,6 +208,9 @@ function toModelResponse(payload: ChatCompletionResponse): ModelResponse {
   });
   return {
     content,
+    ...(typeof choice.finish_reason === 'string' && choice.finish_reason
+      ? { finishReason: choice.finish_reason }
+      : {}),
     ...(toolCalls.length ? { toolCalls } : {}),
     usage: payload.usage
       ? {

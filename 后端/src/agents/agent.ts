@@ -57,6 +57,7 @@ export type AgentExecutorLike =
 
 export type AgentErrorCode =
   | 'LLM_ERROR'
+  | 'LLM_OUTPUT_TRUNCATED'
   | 'PARSING_ERROR'
   | 'TOOL_ERROR'
   | 'TIMEOUT'

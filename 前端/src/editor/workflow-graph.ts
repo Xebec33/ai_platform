@@ -101,7 +101,7 @@ const agentConfig: AgentNodeConfig = {
   outputFormat: 'text',
   outputFields: [],
   temperature: 0.7,
-  maxTokens: 2048,
+  maxTokens: 8192,
 };
 const conditionConfig: ConditionNodeConfig = {
   expression: 'variables.approved === true',
