@@ -581,7 +581,40 @@ h1 {
 }
 
 .field-row--tool {
-  grid-template-columns: minmax(72px, 0.7fr) minmax(0, 1.5fr) 24px;
+  grid-template-columns: minmax(72px, 0.7fr) minmax(0, 1.5fr) auto;
+}
+
+.tool-field-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tool-field-name .field-key-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-field-badge {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  color: #8fa3d9;
+  background: rgba(143, 163, 217, 0.14);
+}
+
+.tool-field-name--required .tool-field-badge {
+  color: #ffb86b;
+  background: rgba(255, 184, 107, 0.16);
+}
+
+.tool-field-add {
+  max-width: 150px;
+  font-size: 11px;
 }
 
 .param-item {
