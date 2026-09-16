@@ -95,6 +95,43 @@ describe('ProviderAgentExecutor', () => {
     });
   });
 
+  it('re-asks the provider once when structured output fails to parse', async () => {
+    const node = agentNode();
+    node.config.outputSchema = { type: 'object', properties: { passed: { type: 'boolean' } } };
+    const systemPrompts: string[] = [];
+    let call = 0;
+    const executor = new ProviderAgentExecutor({
+      providers: new ModelProviderRegistry([
+        new MockModelProvider((request) => {
+          call += 1;
+          systemPrompts.push(request.systemPrompt);
+          return call === 1 ? { content: 'oops not json' } : { content: '{"passed":true}' };
+        }),
+      ]),
+    });
+    await expect(
+      executor.execute({ node, input: 'review', variables: {}, nodeOutputs: {} }),
+    ).resolves.toMatchObject({ output: { passed: true } });
+    expect(call).toBe(2);
+    expect(systemPrompts[1]).toContain('无法解析为 JSON');
+  });
+
+  it('reports the raw output preview when the re-ask still fails to parse', async () => {
+    const node = agentNode();
+    node.config.outputSchema = { type: 'object', properties: { passed: { type: 'boolean' } } };
+    const executor = new ProviderAgentExecutor({
+      providers: new ModelProviderRegistry([
+        new MockModelProvider(() => ({ content: 'still not json' })),
+      ]),
+    });
+    const error = await executor
+      .execute({ node, input: 'review', variables: {}, nodeOutputs: {} })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AgentExecutionError);
+    expect((error as AgentExecutionError).code).toBe('PARSING_ERROR');
+    expect((error as AgentExecutionError).message).toContain('still not json');
+  });
+
   it('executes provider tool calls and sends tool results back to the provider', async () => {
     const root = await (await import('node:fs/promises')).mkdtemp('/tmp/ai-workflow-agent-');
     await (await import('node:fs/promises')).writeFile(`${root}/note.txt`, 'from tool');

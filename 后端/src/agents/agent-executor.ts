@@ -1,6 +1,6 @@
 import type { AgentNode, JsonObject, JsonValue } from '@ai-workflow/shared-types';
 import { ToolError } from '../tools/types.js';
-import type { ModelToolResult, ModelToolRound } from './model-provider.js';
+import type { ModelResponse, ModelToolResult, ModelToolRound } from './model-provider.js';
 import {
   agentConfigFromNode,
   AgentExecutionError,
@@ -42,11 +42,11 @@ export class ProviderAgentExecutor implements AgentExecutor {
       const tools = config.useTools ? context.toolRegistry : undefined;
       let toolHistory: ModelToolRound[] = [];
       let toolCalls = 0;
-      const complete = () =>
+      const complete = (extraPrompt = '') =>
         withTimeout(
           provider.complete({
             model: config.model,
-            systemPrompt: systemPromptFor(config),
+            systemPrompt: systemPromptFor(config) + extraPrompt,
             input: context.input,
             outputFormat: config.outputFormat,
             outputSchema: config.outputSchema,
@@ -104,11 +104,15 @@ export class ProviderAgentExecutor implements AgentExecutor {
         toolHistory = [...toolHistory, { toolCalls: [...response.toolCalls], toolResults: results }];
         response = await complete();
       }
-      const output = parseOutput(response.content, config.outputSchema, config.outputFormat);
+      const parsed = await parseWithRetry(
+        response,
+        () => complete(REPARSE_HINT),
+        (content) => parseOutput(content, config.outputSchema, config.outputFormat),
+      );
       return {
-        output,
-        rawText: response.content,
-        usage: response.usage,
+        output: parsed.output,
+        rawText: parsed.response.content,
+        usage: parsed.response.usage,
         latencyMs: Date.now() - startedAt,
         toolCalls,
       };
@@ -131,6 +135,41 @@ export function createDefaultAgentExecutor(
   options: AgentExecutorOptions = {},
 ): ProviderAgentExecutor {
   return new ProviderAgentExecutor(options);
+}
+
+const REPARSE_HINT =
+  '\n\n注意：你上一次的输出无法解析为 JSON，请重新输出，务必只输出符合上述格式要求的合法 JSON，不要包含任何其他内容。';
+
+async function parseWithRetry(
+  initial: ModelResponse,
+  reask: () => Promise<ModelResponse>,
+  parse: (content: string) => JsonObject,
+): Promise<{ output: JsonObject; response: ModelResponse }> {
+  try {
+    return { output: parse(initial.content), response: initial };
+  } catch (error) {
+    if (!(error instanceof AgentExecutionError) || error.code !== 'PARSING_ERROR') throw error;
+  }
+  const response = await reask();
+  try {
+    return { output: parse(response.content), response };
+  } catch (error) {
+    throw detailedParsingError(response.content, error);
+  }
+}
+
+function detailedParsingError(content: string, cause: unknown): AgentExecutionError {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  const text = content.trim();
+  const preview = text.length
+    ? `原始输出（${content.length} 字符）：${text.slice(0, 300)}`
+    : '原始输出为空';
+  return new AgentExecutionError(
+    'PARSING_ERROR',
+    `Agent 输出无法解析为结构化 JSON（原因：${reason}；${preview}）`,
+    false,
+    { cause },
+  );
 }
 
 function parseOutput(
