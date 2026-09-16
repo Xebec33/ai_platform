@@ -113,8 +113,14 @@ export class DockerSandboxExecutor implements SandboxExecutor {
       '--security-opt',
       'no-new-privileges',
       '--read-only',
+      // npm 缓存独占一块 tmpfs：避免 npm install 写满 /tmp 挤爆
+      // opencode 在 /tmp 下的 SQLite 会话存储（曾导致 Sandbox 执行失败）
       '--tmpfs',
-      '/tmp:rw,noexec,nosuid,size=64m',
+      '/tmp:rw,noexec,nosuid,size=512m',
+      '--tmpfs',
+      '/var/cache/npm:rw,noexec,nosuid,size=512m',
+      '-e',
+      'npm_config_cache=/var/cache/npm',
     ];
     if (!this.allowNetwork) args.push('--network', 'none');
     for (const [key, value] of Object.entries(environment ?? {})) {
@@ -221,7 +227,11 @@ function runProcess(
             }),
         ...(ok
           ? {}
-          : { errorMessage: timedOut ? `Sandbox 执行超时（${timeoutMs}ms）` : 'Sandbox 执行失败' }),
+          : {
+              errorMessage: timedOut
+                ? `Sandbox 执行超时（${timeoutMs}ms）`
+                : failureMessage(exitCode, signal, stderr),
+            }),
       });
     });
   });
@@ -231,6 +241,15 @@ function positive(value: number, name: string): number {
   if (!Number.isInteger(value) || value <= 0)
     throw new SandboxError('INVALID_REQUEST', `${name} 必须是正整数`);
   return value;
+}
+
+// 失败原因透传：把进程退出码与 stderr 尾部带进 errorMessage，
+// 否则上层（Coding Agent / 前端）只能看到笼统的 “Sandbox 执行失败”
+function failureMessage(exitCode: number | null, signal: NodeJS.Signals | null, stderr: string): string {
+  const parts = [`Sandbox 执行失败（exitCode=${exitCode ?? 'null'}${signal ? `, signal=${signal}` : ''}）`];
+  const tail = stderr.trim().split(/\r?\n/).slice(-5).join('\n').trim();
+  if (tail) parts.push(`stderr 尾部：\n${tail}`);
+  return parts.join('\n');
 }
 
 function positiveNumber(value: number, name: string): number {
