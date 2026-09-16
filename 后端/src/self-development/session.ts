@@ -4,6 +4,7 @@ import type { SandboxExecutionResult, SandboxExecutor } from '../sandbox/index.j
 import type { WorkflowRunResult } from '../workflow/runtime/index.js';
 import type { WorkflowNodeRun } from '../workflow/runtime/types.js';
 import type { WorkflowRunEvent } from '../workflow/runtime/events.js';
+import { compactNodeRun } from './compact.js';
 import {
   DevelopmentWorkspaceManager,
   type DevelopmentWorkspace,
@@ -167,7 +168,9 @@ export class DevelopmentSessionManager {
 
   getProgress(taskId: string): SelfDevelopmentProgress | undefined {
     const record = this.progress.get(taskId);
-    return record ? { ...record, nodeRuns: [...record.nodeRuns] } : undefined;
+    return record
+      ? { ...record, nodeRuns: record.nodeRuns.map((nodeRun) => compactNodeRun(nodeRun)) }
+      : undefined;
   }
 
   get(taskId: string): DevelopmentWorkspace | undefined {

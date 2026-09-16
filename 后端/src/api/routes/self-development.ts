@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { SelfDevelopmentOrchestrator } from '../../self-development/index.js';
 import type { DevelopmentSessionManager } from '../../self-development/index.js';
 import { createSelfDevelopmentWorkflow, type SelfDevelopmentWorkflowOptions } from '../../self-development/index.js';
+import { compactRunResult } from '../../self-development/compact.js';
 
 export async function registerSelfDevelopmentRoutes(
   app: FastifyInstance,
@@ -25,7 +26,7 @@ export async function registerSelfDevelopmentRoutes(
     if (!options.orchestrator) return reply.code(503).send({ error: 'Self-development 未配置' });
     try {
       const result = await options.orchestrator.execute(request.body ?? {});
-      return reply.code(result.run.status === 'SUCCESS' ? 200 : 422).send(result);
+      return reply.code(result.run.status === 'SUCCESS' ? 200 : 422).send(compactRunResult(result));
     } catch (error) {
       request.log.error(error);
       const code =
@@ -62,10 +63,11 @@ export async function registerSelfDevelopmentRoutes(
       if (!session) return reply.code(404).send({ error: '开发会话不存在' });
       try {
         const diff = await options.sessions.diff(session.id);
+        const result = options.sessions.getResult(session.id);
         return reply.send({
           workspace: session,
           diff,
-          result: options.sessions.getResult(session.id) ?? null,
+          result: result ? compactRunResult(result) : null,
         });
       } catch (error) {
         return reply.code(422).send({
