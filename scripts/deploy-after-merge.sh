@@ -15,7 +15,8 @@ log() { echo "[$(date '+%F %T')] $*" >> "$LOG"; }
 log "=== auto deploy start (HEAD=$(git rev-parse --short HEAD)) ==="
 
 # merge commit：HEAD^1 是合并前的 main，diff 即本次自举引入的改动
-CHANGED=$(git diff --name-only HEAD^1 HEAD || true)
+# quotepath=false：中文目录默认被 git 转义成八进制，会导致 grep 匹配不上
+CHANGED=$(git -c core.quotepath=false diff --name-only HEAD^1 HEAD || true)
 BACKEND_CHANGE=$(echo "$CHANGED" | grep -E '^(后端|共享类型)/' || true)
 FRONTEND_CHANGE=$(echo "$CHANGED" | grep -E '^(前端|共享类型)/' || true)
 
