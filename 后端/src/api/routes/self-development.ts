@@ -41,8 +41,14 @@ export async function registerSelfDevelopmentRoutes(
   });
 
   app.get('/self-development/sessions', async (_request, reply) => {
-    if (!options.sessions) return reply.code(503).send({ error: 'Self-development 未配置' });
-    return reply.send(options.sessions.list());
+    const sessions = options.sessions;
+    if (!sessions) return reply.code(503).send({ error: 'Self-development 未配置' });
+    return reply.send(
+      sessions.list().map((session) => ({
+        ...session,
+        phase: sessions.activePhase(session.id),
+      })),
+    );
   });
 
   app.get<{ Params: { taskId: string } }>(

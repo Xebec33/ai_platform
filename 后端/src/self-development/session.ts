@@ -173,6 +173,10 @@ export class DevelopmentSessionManager {
       : undefined;
   }
 
+  activePhase(taskId: string): SelfDevelopmentPhase | undefined {
+    return this.progress.get(taskId)?.phase;
+  }
+
   get(taskId: string): DevelopmentWorkspace | undefined {
     return this.sessions.get(taskId);
   }

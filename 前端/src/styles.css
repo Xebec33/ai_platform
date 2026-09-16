@@ -175,6 +175,9 @@ h1 {
 .progress-node__detail {
   color: #8290b5;
   font-size: 11px;
+  /* flex 子项默认 min-width:auto，不加 min-width:0 时 nowrap 长文本会把整行撑出屏幕 */
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1,5 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { registerHealthRoute } from './api/routes/health.js';
 import { registerWorkflowRoutes } from './api/routes/workflows.js';
@@ -170,6 +172,9 @@ export async function createApp(options: AppOptions = {}): Promise<FastifyInstan
             maxToolRounds: readPositiveInteger('SELF_DEVELOPMENT_MAX_TOOL_ROUNDS', 16),
           }),
         },
+        ...(autoDeployScript(repositoryRoot)
+          ? { onMerged: () => spawnAutoDeploy(repositoryRoot) }
+          : {}),
       }),
       sessions,
     });
@@ -191,6 +196,24 @@ function readPositiveInteger(name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 0) throw new Error(`${name} 必须是非负整数`);
   return value;
+}
+
+function autoDeployScript(repositoryRoot: string): string | undefined {
+  if (process.env.SELF_DEVELOPMENT_AUTO_DEPLOY !== 'true') return undefined;
+  const script = path.join(repositoryRoot, 'scripts', 'deploy-after-merge.sh');
+  return existsSync(script) ? script : undefined;
+}
+
+// detached + unref：部署脚本独立于 backend 进程存活（它最后一步 pm2 restart
+// 会杀死当前 backend，此时 HTTP 响应早已返回，互不影响）
+function spawnAutoDeploy(repositoryRoot: string): void {
+  const script = autoDeployScript(repositoryRoot);
+  if (!script) return;
+  try {
+    spawn('bash', [script], { cwd: repositoryRoot, detached: true, stdio: 'ignore' }).unref();
+  } catch {
+    // 部署失败不影响已合并的开发结果，可手动重跑 scripts/deploy-after-merge.sh
+  }
 }
 
 function codingAgentEnvironment(): Record<string, string> {

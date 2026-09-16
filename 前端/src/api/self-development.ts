@@ -8,6 +8,8 @@ export interface SelfDevelopmentWorkspace {
   baseBranch: string;
   branch: string;
   createdAt: string;
+  /** 会话当前阶段（仅列表接口返回；RUNNING/MERGING 表示仍在进行中） */
+  phase?: string;
 }
 
 export interface SelfDevelopmentRunResult {

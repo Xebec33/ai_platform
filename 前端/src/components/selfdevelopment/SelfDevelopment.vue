@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   getSelfDevelopmentProgress,
   getSelfDevelopmentSessionDiff,
@@ -113,10 +113,24 @@ async function refreshSessions(): Promise<void> {
   try {
     sessions.value = await listSelfDevelopmentSessions();
     sessionsUnavailable.value = false;
+    // 页面重挂载（如开发中途切走再切回）时，自动恢复对进行中会话的进度轮询
+    const inFlight = sessions.value.find(
+      (session) => session.phase === 'RUNNING' || session.phase === 'MERGING',
+    );
+    if (inFlight) {
+      activeTaskId.value = inFlight.id;
+      startProgressPolling(inFlight.id);
+    }
   } catch {
     sessionsUnavailable.value = true;
   }
 }
+
+const completedSessions = computed(() =>
+  sessions.value.filter(
+    (session) => session.phase !== 'RUNNING' && session.phase !== 'MERGING',
+  ),
+);
 
 async function loadDiff(taskId: string): Promise<void> {
   diffLoading.value = true;
@@ -287,12 +301,12 @@ onBeforeUnmount(stopProgressPolling);
       <section class="self-dev-sessions">
         <div class="panel-heading">
           <span>开发会话</span>
-          <small>{{ sessions.length }} 条</small>
+          <small>{{ completedSessions.length }} 条</small>
         </div>
         <p v-if="sessionsUnavailable" class="empty-state">Self-development 未启用（需要在后端配置 SELF_DEVELOPMENT_ENABLED=true）</p>
-        <div v-else-if="sessions.length === 0" class="empty-state">暂无开发会话</div>
+        <div v-else-if="completedSessions.length === 0" class="empty-state">暂无开发会话</div>
         <button
-          v-for="session in sessions"
+          v-for="session in completedSessions"
           :key="session.id"
           type="button"
           class="run-item"

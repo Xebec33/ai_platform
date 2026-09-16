@@ -16,6 +16,8 @@ export interface SelfDevelopmentOrchestratorOptions {
   runtime?: Omit<WorkflowRuntimeOptions, 'workspaceRoot' | 'toolRegistry' | 'agentRegistry'>;
   model?: string;
   codingModel?: string;
+  /** merge 成功后触发（同步回调，可在这里启动 detached 的自动部署进程） */
+  onMerged?: (result: SelfDevelopmentResult) => void;
 }
 
 export interface SelfDevelopmentResult {
@@ -76,6 +78,9 @@ export class SelfDevelopmentOrchestrator {
     }
     this.options.sessions.setPhase(taskId, 'MERGED');
     await this.options.sessions.record(taskId, { workspace, run, merged: true, mergeOutput });
-    return { workspace, run, merged: true, mergeOutput };
+    const merged = { workspace, run, merged: true, mergeOutput };
+    // 自动部署 detached 触发：HTTP 响应随后正常返回，部署脚本最后才会 pm2 restart
+    this.options.onMerged?.(merged);
+    return merged;
   }
 }
