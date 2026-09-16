@@ -7,6 +7,7 @@ import { serializeWorkflowGraph, type WorkflowNodeType } from '../../editor/work
 import { apiFetch } from '../../api/client';
 import { fetchWorkflow, listSavedWorkflows, listWorkflowDemos, runWorkflow, type SavedWorkflowSummary } from '../../api/workflows';
 import { useWorkflowEditorStore } from '../../stores/workflow-editor';
+import { formatDateTime } from '../../utils/datetime';
 
 const emit = defineEmits<{ runStarted: [runId: string] }>();
 const store = useWorkflowEditorStore();
@@ -375,7 +376,7 @@ async function runCurrentWorkflow(): Promise<void> {
             @click="loadSavedWorkflow(item.id)"
           >
             <span class="run-item__id">{{ item.name }}</span>
-            <small class="run-item__time">{{ item.id }}<template v-if="item.updatedAt"> · {{ item.updatedAt.replace('T', ' ').slice(0, 16) }}</template></small>
+            <small class="run-item__time">{{ item.id }}<template v-if="item.updatedAt"> · {{ formatDateTime(item.updatedAt) }}</template></small>
             <span v-if="loadingWorkflowId === item.id">加载中...</span>
           </button>
         </div>

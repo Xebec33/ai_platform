@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { formatDateTime } from '../../utils/datetime';
 import {
   getSelfDevelopmentProgress,
   getSelfDevelopmentSessionDiff,
@@ -127,9 +128,9 @@ async function refreshSessions(): Promise<void> {
 }
 
 const completedSessions = computed(() =>
-  sessions.value.filter(
-    (session) => session.phase !== 'RUNNING' && session.phase !== 'MERGING',
-  ),
+  sessions.value
+    .filter((session) => session.phase !== 'RUNNING' && session.phase !== 'MERGING')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
 );
 
 async function loadDiff(taskId: string): Promise<void> {
@@ -314,7 +315,7 @@ onBeforeUnmount(stopProgressPolling);
           @click="loadDiff(session.id)"
         >
           <span class="run-item__id">{{ session.id }}</span>
-          <small class="run-item__time">{{ session.createdAt }} · {{ session.branch }}</small>
+          <small class="run-item__time">{{ formatDateTime(session.createdAt) }} · {{ session.branch }}</small>
         </button>
       </section>
 

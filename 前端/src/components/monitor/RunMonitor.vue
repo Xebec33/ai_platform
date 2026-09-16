@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRunMonitorStore } from '../../stores/run-monitor';
+import { formatDateTime } from '../../utils/datetime';
 
 const store = useRunMonitorStore();
 
@@ -63,7 +64,7 @@ const eventLevel: Record<string, string> = {
 const logLines = computed<string[]>(() =>
   store.events.map((event) => {
     const level = eventLevel[event.type] ?? 'INFO';
-    const parts = [event.timestamp, level.padEnd(5, ' '), eventLabel[event.type] ?? event.type];
+    const parts = [formatDateTime(event.timestamp), level.padEnd(5, ' '), eventLabel[event.type] ?? event.type];
     if (event.nodeId) parts.push('node=' + event.nodeId);
     if (event.iteration !== undefined) parts.push('iteration=' + event.iteration);
     if (event.error) parts.push('error=' + event.error);
@@ -134,7 +135,7 @@ onUnmounted(() => store.clearSelection());
         >
           <span class="run-item__id">{{ run.id }}</span>
           <span class="run-item__status" :class="statusClass(run.status)">{{ run.status }}</span>
-          <small class="run-item__time">{{ run.startedAt }}</small>
+          <small class="run-item__time">{{ formatDateTime(run.startedAt) }}</small>
         </button>
       </aside>
 
@@ -155,7 +156,7 @@ onUnmounted(() => store.clearSelection());
           </div>
           <div class="summary-item">
             <span class="summary-label">开始时间</span>
-            <span class="summary-value">{{ store.currentRun.startedAt }}</span>
+            <span class="summary-value">{{ formatDateTime(store.currentRun.startedAt) }}</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">持续时间</span>

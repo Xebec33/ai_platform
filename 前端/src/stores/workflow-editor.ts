@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import type { JsonObject } from '@ai-workflow/shared-types';
 import { uiGraphToWorkflow } from '@ai-workflow/shared-types';
 import { saveWorkflow } from '../api/workflows';
+import { formatClock } from '../utils/datetime';
 import {
   createDefaultWorkflowGraph,
   createWorkflowGraphNode,
@@ -92,7 +93,7 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     }
     try {
       applyGraph(deserializeWorkflowGraph(stored));
-      savedAt.value = new Date().toLocaleTimeString();
+      savedAt.value = formatClock(new Date());
       message.value = '已从本地存储恢复 Workflow';
       return true;
     } catch (cause) {
@@ -261,7 +262,7 @@ export const useWorkflowEditorStore = defineStore('workflow-editor', () => {
     if (typeof window !== 'undefined')
       window.localStorage.setItem(STORAGE_KEY, serializeWorkflowGraph(graph.value));
     autosavePending.value = false;
-    savedAt.value = new Date().toLocaleTimeString();
+    savedAt.value = formatClock(new Date());
     if (silent) return;
     try {
       await saveWorkflow(uiGraphToWorkflow(graph.value, { id: workflowId.value, name: workflowName.value }));
