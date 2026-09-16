@@ -40,7 +40,15 @@ export class SelfDevelopmentOrchestrator {
       agentRegistry: this.options.agentRegistry,
       toolRegistry: this.options.toolRegistry,
       workspaceRoot: workspace.path,
+      eventSink: {
+        emit: (event) => {
+          if (!workspace.id) return;
+          this.options.sessions.recordEvent(taskId, event);
+        },
+      },
+      runIdFactory: () => `self-dev-${taskId}`,
     });
+    this.options.sessions.startProgress(taskId, `self-dev-${taskId}`);
     const run = await runtime.execute({ variables: { requirement: workflowOptions.requirement ?? workflow.variables.requirement } });
     if (run.status !== 'SUCCESS') {
       await this.options.sessions.record(taskId, { workspace, run, merged: false });
@@ -49,9 +57,15 @@ export class SelfDevelopmentOrchestrator {
     // merge 会写入源码并可能触发 dev server 热重启，先落盘再合并
     await this.options.sessions.record(taskId, { workspace, run, merged: false });
     let mergeOutput: string;
+    this.options.sessions.setPhase(taskId, 'MERGING');
     try {
       mergeOutput = await this.options.workspaceManager.merge(workspace);
     } catch (error) {
+      this.options.sessions.setPhase(
+        taskId,
+        'MERGE_FAILED',
+        error instanceof Error ? error.message : String(error),
+      );
       await this.options.sessions.record(taskId, {
         workspace,
         run,
@@ -60,6 +74,7 @@ export class SelfDevelopmentOrchestrator {
       });
       throw error;
     }
+    this.options.sessions.setPhase(taskId, 'MERGED');
     await this.options.sessions.record(taskId, { workspace, run, merged: true, mergeOutput });
     return { workspace, run, merged: true, mergeOutput };
   }

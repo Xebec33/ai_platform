@@ -126,6 +126,60 @@ h1 {
   background: #f5c451;
 }
 
+.status-dot--idle {
+  background: #8290b5;
+}
+
+.status-iteration {
+  color: #8290b5;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.progress-nodes {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.progress-node {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(181, 194, 255, 0.05);
+}
+
+.progress-node--running {
+  border-color: rgba(245, 196, 81, 0.4);
+  background: rgba(245, 196, 81, 0.08);
+}
+
+.progress-node--failed {
+  border-color: rgba(255, 123, 140, 0.45);
+}
+
+.progress-node__icon {
+  flex: none;
+  font-size: 12px;
+}
+
+.progress-node__label {
+  color: #dce4ff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.progress-node__detail {
+  color: #8290b5;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .success .status-dot {
   background: #4cd9a4;
 }

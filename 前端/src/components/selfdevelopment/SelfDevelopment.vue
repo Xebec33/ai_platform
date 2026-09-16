@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import {
+  getSelfDevelopmentProgress,
   getSelfDevelopmentSessionDiff,
   listSelfDevelopmentSessions,
   runSelfDevelopment,
+  type SelfDevelopmentProgress,
   type SelfDevelopmentRunResult,
   type SelfDevelopmentSessionResult,
   type SelfDevelopmentWorkspace,
@@ -19,6 +21,19 @@ const diffText = ref('');
 const diffLoading = ref(false);
 const sessionResult = ref<SelfDevelopmentSessionResult | null>(null);
 const activeSessionId = ref('');
+const progress = ref<SelfDevelopmentProgress | null>(null);
+const activeTaskId = ref('');
+let progressTimer: ReturnType<typeof setInterval> | undefined;
+
+const phaseLabel: Record<string, string> = {
+  RUNNING: '执行中',
+  SUCCESS: '执行完成',
+  FAILED: '执行失败',
+  CANCELLED: '已取消',
+  MERGING: '合并代码中',
+  MERGED: '已合并',
+  MERGE_FAILED: '合并失败',
+};
 
 const nodeLabel: Record<string, string> = {
   'start-1': '开始',
@@ -39,6 +54,26 @@ const mergeErrorHints: Record<string, string> = {
   BASE_BRANCH_NOT_CHECKED_OUT: '基础仓库当前检出的分支不是配置的基础分支，请切换回基础分支后重试。',
 };
 
+function startProgressPolling(taskId: string): void {
+  stopProgressPolling();
+  const poll = async (): Promise<void> => {
+    try {
+      progress.value = await getSelfDevelopmentProgress(taskId);
+    } catch {
+      // 轮询失败不中断运行，下次继续
+    }
+  };
+  void poll();
+  progressTimer = setInterval(poll, 1500);
+}
+
+function stopProgressPolling(): void {
+  if (progressTimer !== undefined) {
+    clearInterval(progressTimer);
+    progressTimer = undefined;
+  }
+}
+
 async function startRun(): Promise<void> {
   if (!requirement.value.trim()) {
     error.value = '请先输入开发需求';
@@ -48,8 +83,11 @@ async function startRun(): Promise<void> {
   error.value = '';
   result.value = null;
   diffText.value = '';
+  progress.value = null;
+  const taskId = 'task-' + Date.now();
+  activeTaskId.value = taskId;
+  startProgressPolling(taskId);
   try {
-    const taskId = 'task-' + Date.now();
     result.value = await runSelfDevelopment({
       taskId,
       requirement: requirement.value.trim(),
@@ -59,6 +97,14 @@ async function startRun(): Promise<void> {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Self-development 执行失败';
   } finally {
+    stopProgressPolling();
+    if (activeTaskId.value === taskId) {
+      try {
+        progress.value = await getSelfDevelopmentProgress(taskId);
+      } catch {
+        // 保留最后一次成功轮询的进度
+      }
+    }
     running.value = false;
   }
 }
@@ -120,6 +166,7 @@ const codingSteps = (output?: Record<string, unknown>): CodingStep[] => {
 const detailJson = (value: unknown): string => JSON.stringify(value, null, 2);
 
 onMounted(refreshSessions);
+onBeforeUnmount(stopProgressPolling);
 </script>
 
 <template>
@@ -158,9 +205,33 @@ onMounted(refreshSessions);
         </label>
       </section>
 
-      <section v-if="running" class="status-card">
-        <div class="status-heading"><span class="status-dot" aria-hidden="true" /><span>正在执行</span></div>
-        <p class="status-message">Coding Agent 正在隔离 workspace 中读取代码、修改文件并运行测试...</p>
+      <section v-if="running || (progress && result === null)" class="status-card">
+        <div class="status-heading">
+          <span class="status-dot" :class="{ 'status-dot--idle': !running }" aria-hidden="true" />
+          <span>{{ phaseLabel[progress?.phase ?? 'RUNNING'] ?? '正在执行' }}</span>
+          <small v-if="progress?.iteration" class="status-iteration">循环第 {{ progress.iteration }} 轮</small>
+        </div>
+        <div v-if="!progress" class="status-message">正在启动隔离 workspace...</div>
+        <div v-else class="progress-nodes">
+          <div
+            v-for="nodeRun in progress.nodeRuns"
+            :key="nodeRun.id"
+            class="progress-node"
+            :class="{
+              'progress-node--running': nodeRun.nodeId === progress.currentNode && running,
+              'progress-node--failed': nodeRun.status === 'FAILED',
+            }"
+          >
+            <span class="progress-node__icon">{{
+              nodeRun.status === 'FAILED' ? '✗' : nodeRun.nodeId === progress.currentNode && running ? '⏳' : '✓'
+            }}</span>
+            <span class="progress-node__label">{{ nodeLabel[nodeRun.nodeId] ?? nodeRun.nodeId }}</span>
+            <small class="progress-node__detail">
+              {{ nodeRun.status === 'FAILED' ? (nodeRun.error ?? '失败') : nodeRun.nodeId === progress.currentNode && running ? '执行中...' : summary(nodeRun.output) || '完成' }}
+            </small>
+          </div>
+        </div>
+        <p v-if="progress?.error" class="monitor-error">{{ progress.error }}</p>
       </section>
 
       <section v-if="result" class="self-dev-result">

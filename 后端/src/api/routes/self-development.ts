@@ -45,6 +45,16 @@ export async function registerSelfDevelopmentRoutes(
   });
 
   app.get<{ Params: { taskId: string } }>(
+    '/self-development/sessions/:taskId/progress',
+    async (request, reply) => {
+      if (!options.sessions) return reply.code(503).send({ error: 'Self-development 未配置' });
+      const progress = options.sessions.getProgress(request.params.taskId);
+      if (!progress) return reply.code(404).send({ error: '暂无进度记录' });
+      return reply.send(progress);
+    },
+  );
+
+  app.get<{ Params: { taskId: string } }>(
     '/self-development/sessions/:taskId',
     async (request, reply) => {
       if (!options.sessions) return reply.code(503).send({ error: 'Self-development 未配置' });

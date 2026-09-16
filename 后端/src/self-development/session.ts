@@ -2,6 +2,8 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promise
 import path from 'node:path';
 import type { SandboxExecutionResult, SandboxExecutor } from '../sandbox/index.js';
 import type { WorkflowRunResult } from '../workflow/runtime/index.js';
+import type { WorkflowNodeRun } from '../workflow/runtime/types.js';
+import type { WorkflowRunEvent } from '../workflow/runtime/events.js';
 import {
   DevelopmentWorkspaceManager,
   type DevelopmentWorkspace,
@@ -16,6 +18,26 @@ export interface DevelopmentSessionResult {
   mergeError?: string;
 }
 
+export type SelfDevelopmentPhase =
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'MERGING'
+  | 'MERGED'
+  | 'MERGE_FAILED';
+
+export interface SelfDevelopmentProgress {
+  taskId: string;
+  runId: string;
+  phase: SelfDevelopmentPhase;
+  currentNode?: string;
+  iteration?: number;
+  nodeRuns: WorkflowNodeRun[];
+  error?: string;
+  updatedAt: string;
+}
+
 export interface DevelopmentSessionManagerOptions {
   workspaceManager: DevelopmentWorkspaceManager;
   sandboxExecutor: SandboxExecutor;
@@ -27,6 +49,7 @@ const RESULT_SUFFIX = '.result.json';
 export class DevelopmentSessionManager {
   private readonly sessions = new Map<string, DevelopmentWorkspace>();
   private readonly results = new Map<string, DevelopmentSessionResult>();
+  private readonly progress = new Map<string, SelfDevelopmentProgress>();
 
   constructor(private readonly options: DevelopmentSessionManagerOptions) {}
 
@@ -68,6 +91,83 @@ export class DevelopmentSessionManager {
     await mkdir(this.options.workspaceManager.workspacesRoot, { recursive: true });
     await writeFile(this.sessionFile(taskId), JSON.stringify(workspace, null, 2), 'utf8');
     return workspace;
+  }
+
+  startProgress(taskId: string, runId: string): SelfDevelopmentProgress {
+    const record: SelfDevelopmentProgress = {
+      taskId,
+      runId,
+      phase: 'RUNNING',
+      nodeRuns: [],
+      updatedAt: new Date().toISOString(),
+    };
+    this.progress.set(taskId, record);
+    return record;
+  }
+
+  recordEvent(taskId: string, event: WorkflowRunEvent): void {
+    const record = this.progress.get(taskId);
+    if (!record) return;
+    const touch = (): void => {
+      record.updatedAt = new Date().toISOString();
+    };
+    switch (event.type) {
+      case 'NODE_STARTED':
+        if (event.nodeRun) {
+          const existing = record.nodeRuns.findIndex((run) => run.id === event.nodeRun?.id);
+          if (existing >= 0) record.nodeRuns[existing] = event.nodeRun;
+          else record.nodeRuns.push(event.nodeRun);
+        }
+        record.currentNode = event.nodeId;
+        touch();
+        break;
+      case 'NODE_COMPLETED':
+      case 'NODE_FAILED':
+        if (event.nodeRun) {
+          const existing = record.nodeRuns.findIndex((run) => run.id === event.nodeRun?.id);
+          if (existing >= 0) record.nodeRuns[existing] = event.nodeRun;
+          else record.nodeRuns.push(event.nodeRun);
+        }
+        if (record.currentNode === event.nodeId) record.currentNode = undefined;
+        touch();
+        break;
+      case 'LOOP_STARTED':
+        record.currentNode = event.nodeId ?? record.currentNode;
+        touch();
+        break;
+      case 'LOOP_ITERATION':
+      case 'LOOP_CONTINUED':
+        if (event.iteration !== undefined) record.iteration = event.iteration;
+        touch();
+        break;
+      case 'RUN_COMPLETED':
+        record.phase = (event.status as SelfDevelopmentPhase) ?? 'SUCCESS';
+        record.currentNode = undefined;
+        touch();
+        break;
+      case 'RUN_FAILED':
+      case 'RUN_CANCELLED':
+        record.phase = event.type === 'RUN_FAILED' ? 'FAILED' : 'CANCELLED';
+        if (event.error) record.error = event.error;
+        record.currentNode = undefined;
+        touch();
+        break;
+      default:
+        break;
+    }
+  }
+
+  setPhase(taskId: string, phase: SelfDevelopmentPhase, error?: string): void {
+    const record = this.progress.get(taskId);
+    if (!record) return;
+    record.phase = phase;
+    if (error !== undefined) record.error = error;
+    record.updatedAt = new Date().toISOString();
+  }
+
+  getProgress(taskId: string): SelfDevelopmentProgress | undefined {
+    const record = this.progress.get(taskId);
+    return record ? { ...record, nodeRuns: [...record.nodeRuns] } : undefined;
   }
 
   get(taskId: string): DevelopmentWorkspace | undefined {

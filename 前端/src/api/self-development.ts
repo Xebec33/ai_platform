@@ -49,6 +49,26 @@ export interface SelfDevelopmentSessionDiff {
   result?: SelfDevelopmentSessionResult | null;
 }
 
+export type SelfDevelopmentPhase =
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'MERGING'
+  | 'MERGED'
+  | 'MERGE_FAILED';
+
+export interface SelfDevelopmentProgress {
+  taskId: string;
+  runId: string;
+  phase: SelfDevelopmentPhase;
+  currentNode?: string;
+  iteration?: number;
+  nodeRuns: SelfDevelopmentRunResult['run']['nodeRuns'];
+  error?: string;
+  updatedAt: string;
+}
+
 export async function runSelfDevelopment(payload: {
   taskId: string;
   requirement: string;
@@ -73,6 +93,15 @@ export async function listSelfDevelopmentSessions(): Promise<SelfDevelopmentWork
   const response = await apiFetch('/self-development/sessions');
   if (!response.ok) throw new Error('获取开发会话失败: ' + response.status);
   return (await response.json()) as SelfDevelopmentWorkspace[];
+}
+
+export async function getSelfDevelopmentProgress(
+  taskId: string,
+): Promise<SelfDevelopmentProgress | null> {
+  const response = await apiFetch('/self-development/sessions/' + encodeURIComponent(taskId) + '/progress');
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('获取进度失败: ' + response.status);
+  return (await response.json()) as SelfDevelopmentProgress;
 }
 
 export async function getSelfDevelopmentSessionDiff(

@@ -72,6 +72,43 @@ describe('DevelopmentWorkspaceManager', () => {
 });
 
 describe('DevelopmentSessionManager persistence', () => {
+  it('records live progress from workflow events', () => {
+    const sessions = new DevelopmentSessionManager({ workspaceManager: null as never, sandboxExecutor: null as never });
+    sessions.startProgress('task-1', 'self-dev-task-1');
+    const nodeRun = (id: string, nodeId: string, status: string) => ({ id, nodeId, status });
+    sessions.recordEvent('task-1', {
+      type: 'NODE_STARTED',
+      nodeId: 'requirement-analyzer',
+      nodeRun: nodeRun('n1', 'requirement-analyzer', 'RUNNING') as never,
+    } as never);
+    let progress = sessions.getProgress('task-1');
+    expect(progress?.phase).toBe('RUNNING');
+    expect(progress?.currentNode).toBe('requirement-analyzer');
+    expect(progress?.nodeRuns).toHaveLength(1);
+    sessions.recordEvent('task-1', {
+      type: 'NODE_COMPLETED',
+      nodeId: 'requirement-analyzer',
+      nodeRun: nodeRun('n1', 'requirement-analyzer', 'SUCCESS') as never,
+    } as never);
+    sessions.recordEvent('task-1', {
+      type: 'NODE_STARTED',
+      nodeId: 'coding-agent',
+      nodeRun: nodeRun('n2', 'coding-agent', 'RUNNING') as never,
+    } as never);
+    sessions.recordEvent('task-1', { type: 'LOOP_ITERATION', iteration: 2 } as never);
+    progress = sessions.getProgress('task-1');
+    expect(progress?.currentNode).toBe('coding-agent');
+    expect(progress?.iteration).toBe(2);
+    expect(progress?.nodeRuns.map((run) => run.status)).toEqual(['SUCCESS', 'RUNNING']);
+    sessions.recordEvent('task-1', { type: 'RUN_COMPLETED', status: 'SUCCESS' } as never);
+    sessions.setPhase('task-1', 'MERGING');
+    sessions.setPhase('task-1', 'MERGED');
+    progress = sessions.getProgress('task-1');
+    expect(progress?.phase).toBe('MERGED');
+    expect(progress?.currentNode).toBeUndefined();
+    expect(sessions.getProgress('task-missing')).toBeUndefined();
+  });
+
   it('restores sessions and recorded results from disk after a restart', async () => {
     const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-repository-'));
     const workspacesRoot = await mkdtemp(path.join(os.tmpdir(), 'ai-workflow-workspaces-'));
