@@ -150,6 +150,9 @@ h1 {
   border: 1px solid transparent;
   border-radius: 8px;
   background: rgba(181, 194, 255, 0.05);
+  /* .progress-nodes 是 grid，grid 子项默认 min-width:auto 会被
+     nowrap 长文本（coding-agent 输出）撑爆轨道并传导到整页 */
+  min-width: 0;
 }
 
 .progress-node--running {
