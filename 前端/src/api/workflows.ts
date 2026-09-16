@@ -46,8 +46,17 @@ export async function runWorkflow(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workflow, variables }),
   });
-  const payload = (await response.json()) as { id?: string; error?: string };
-  if (!response.ok) throw new Error(payload.error ?? '启动 Workflow 失败: ' + response.status);
+  const payload = (await response.json().catch(() => ({}))) as {
+    id?: string;
+    error?: string;
+    issues?: Array<{ message?: string }>;
+  };
+  if (!response.ok) {
+    const detail = payload.issues?.map((issue) => issue.message).filter(Boolean).join('；');
+    throw new Error(
+      detail ? payload.error + '：' + detail : payload.error ?? '启动 Workflow 失败: ' + response.status,
+    );
+  }
   if (!payload.id) throw new Error('后端未返回 Run ID');
   return { id: payload.id };
 }

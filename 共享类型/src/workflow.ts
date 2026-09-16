@@ -194,7 +194,10 @@ export function uiGraphToWorkflow(
       const type = toWorkflowNodeType(node.type);
       const config = cloneJsonObject(node.data.config ?? {});
       if (type === 'condition') config.expression = conditionExpression(config);
-      if (type === 'loop') applyLoopTargets(config, graph.edges, node.id);
+      if (type === 'loop') {
+        applyLoopTargets(config, graph.edges, node.id);
+        if (typeof config.timeout === 'number' && config.timeout <= 0) delete config.timeout;
+      }
       if (type === 'agent') {
         const outputSchema = outputSchemaFromAgentConfig(config);
         if (outputSchema) config.outputSchema = outputSchema;

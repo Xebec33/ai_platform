@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  loopEngineeringDemo,
+  uiGraphToWorkflow,
+  validateWorkflow,
+  workflowToUiGraph,
+} from '@ai-workflow/shared-types';
+import {
   createDefaultWorkflowGraph,
   deserializeWorkflowGraph,
   graphToVueFlow,
@@ -9,6 +15,27 @@ import {
 } from './workflow-graph';
 
 describe('workflow graph', () => {
+  it('keeps the Loop Engineering demo runnable through a full editor round-trip', () => {
+    const uiGraph = workflowToUiGraph(loopEngineeringDemo);
+    const flow = graphToVueFlow(uiGraph);
+    const back = vueFlowToGraph(flow.nodes, flow.edges, { id: uiGraph.id, name: uiGraph.name });
+    expect(validateWorkflowGraph(back).valid).toBe(true);
+    const workflow = uiGraphToWorkflow(back, { id: 'wf-loop-trace', name: 'trace' });
+    expect(validateWorkflow(workflow).valid).toBe(true);
+    const loopNode = workflow.nodes.find((node) => node.type === 'loop');
+    expect(loopNode?.config.bodyNodeId).toBe('test-agent');
+    expect(loopNode?.config.exitNodeId).toBe('end-1');
+  });
+  it('drops loop timeout of 0 as unlimited instead of failing backend validation', () => {
+    const uiGraph = workflowToUiGraph(loopEngineeringDemo);
+    const loopNode = uiGraph.nodes.find((node) => node.type === 'loop');
+    if (!loopNode) throw new Error('loop node missing');
+    loopNode.data.config = { ...loopNode.data.config, timeout: 0 };
+    const workflow = uiGraphToWorkflow(uiGraph, { id: 'wf-zero-timeout', name: 'zero' });
+    const converted = workflow.nodes.find((node) => node.type === 'loop');
+    expect(converted?.config.timeout).toBeUndefined();
+    expect(validateWorkflow(workflow).valid).toBe(true);
+  });
   it('converts between graph and Vue Flow without losing config or positions', () => {
     const graph = createDefaultWorkflowGraph();
     const agent = graph.nodes.find((node) => node.type === 'agent');
